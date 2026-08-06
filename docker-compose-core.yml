@@ -1,0 +1,123 @@
+########################################################
+# SAFCO FINTECH LMS - CORE ONLY (lighter, faster boot)
+# Skips heavy monitoring images (ELK, Grafana, Loki, Prometheus)
+# so the app runs quickly on unstable/slow connections.
+# Run monitoring later with: docker compose -f docker-compose.yml up -d
+########################################################
+version: "3.9"
+
+networks:
+  safco:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  hivemq_data:
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-app
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html
+    environment:
+      - DB_HOST=mysql
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - MQTT_HOST=hivemq
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+      - hivemq
+    networks:
+      - safco
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-worker
+    restart: unless-stopped
+    command: sh -c "sleep 15 && php artisan queue:work --queue=emails,sms,notifications-high,notifications,media,security,analytics,event-bus,default --tries=5"
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+      - mysql
+      - redis
+    networks:
+      - safco
+
+  mysql:
+    image: mysql:8.0
+    container_name: safco-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_2026
+      MYSQL_DATABASE: safco_lms
+      MYSQL_USER: safco_user
+      MYSQL_PASSWORD: safco_secret_2026
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - safco
+
+  redis:
+    image: redis:7-alpine
+    container_name: safco-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - safco
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: safco-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: safco_rabbit
+      RABBITMQ_DEFAULT_PASS: safco_rabbit_secret
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - safco
+
+  hivemq:
+    image: hivemq/hivemq-ce:latest
+    container_name: safco-hivemq
+    restart: unless-stopped
+    ports:
+      - "1884:1883"
+      - "8081:8080"
+    volumes:
+      - hivemq_data:/opt/hivemq/data
+    networks:
+      - safco
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: safco-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - safco

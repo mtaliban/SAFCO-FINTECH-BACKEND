@@ -1,0 +1,60 @@
+*.log
+.DS_Store
+.env
+.env.backup
+.env.production
+.env.local
+.env.testing
+.phpactor.json
+.phpunit.result.cache
+
+# IDEs
+/.fleet
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+
+# Composer & Node
+/auth.json
+/node_modules
+/vendor
+composer.phar
+
+# Public build
+/public/build
+/public/hot
+/public/storage
+
+# Storage
+/storage/*.key
+/storage/pail
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/app/logs/csv/*
+!/storage/app/logs/csv/.gitkeep
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/framework/testing/*
+
+# Homestead / Vagrant
+Homestead.json
+Homestead.yaml
+Thumbs.db
+
+# Docker persistent volumes
+/docker/mysql/data
+/docker/rabbitmq/data
+/docker/hivemq/data
+/docker/redis/data
+
+# Temp/local scripts
+setup.sh
+post-boot.sh
+*.swp
+*.swo
+
+# OS
+.DS_Store

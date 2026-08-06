@@ -1,0 +1,167 @@
+{
+  "info": {
+    "name": "SAFCO FINTECH LMS - Module 1: User Management",
+    "description": "Full API collection for testing Module 1 endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "safco-lms-module-1"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1" },
+    { "key": "token", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "Register User",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"full_name\": \"Amina Mohamed\",\n  \"first_name\": \"Amina\",\n  \"last_name\": \"Mohamed\",\n  \"email\": \"amina@example.com\",\n  \"phone\": \"+255712345678\",\n  \"password\": \"StrongP@ss2026\",\n  \"password_confirmation\": \"StrongP@ss2026\",\n  \"gender\": \"female\",\n  \"position\": \"Accountant\",\n  \"role\": \"student\",\n  \"country\": \"Tanzania\",\n  \"accept_terms\": true\n}"
+        },
+        "url": { "raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"] }
+      }
+    },
+    {
+      "name": "Login (Admin)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const res = pm.response.json();",
+              "if (res.data && res.data.token) {",
+              "  pm.collectionVariables.set('token', res.data.token);",
+              "  console.log('Token saved: ' + res.data.token);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"admin@safcofintech.co.tz\",\n  \"password\": \"Admin@2026!\",\n  \"device_name\": \"postman\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] }
+      }
+    },
+    {
+      "name": "Get Current User (Me)",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/auth/me", "host": ["{{base_url}}"], "path": ["auth", "me"] }
+      }
+    },
+    {
+      "name": "Get Profile",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/users/profile", "host": ["{{base_url}}"], "path": ["users", "profile"] }
+      }
+    },
+    {
+      "name": "Update Profile",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"bio\": \"Learning modern web development.\",\n  \"city\": \"Dar es Salaam\",\n  \"position\": \"Senior Developer\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/users/profile", "host": ["{{base_url}}"], "path": ["users", "profile"] }
+      }
+    },
+    {
+      "name": "Login History",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/users/login-history", "host": ["{{base_url}}"], "path": ["users", "login-history"] }
+      }
+    },
+    {
+      "name": "Setup 2FA (TOTP)",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{base_url}}/auth/2fa/setup", "host": ["{{base_url}}"], "path": ["auth", "2fa", "setup"] }
+      }
+    },
+    {
+      "name": "Confirm 2FA",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"123456\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/auth/2fa/confirm", "host": ["{{base_url}}"], "path": ["auth", "2fa", "confirm"] }
+      }
+    },
+    {
+      "name": "Forgot Password",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"amina@example.com\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/auth/password/forgot", "host": ["{{base_url}}"], "path": ["auth", "password", "forgot"] }
+      }
+    },
+    {
+      "name": "Request OTP",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"amina@example.com\",\n  \"type\": \"email_verify\",\n  \"channel\": \"email\"\n}"
+        },
+        "url": { "raw": "{{base_url}}/auth/otp/request", "host": ["{{base_url}}"], "path": ["auth", "otp", "request"] }
+      }
+    },
+    {
+      "name": "Logout",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{base_url}}/auth/logout", "host": ["{{base_url}}"], "path": ["auth", "logout"] }
+      }
+    },
+    {
+      "name": "Admin - List Users",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/admin/users?per_page=20",
+          "host": ["{{base_url}}"],
+          "path": ["admin", "users"],
+          "query": [{ "key": "per_page", "value": "20" }]
+        }
+      }
+    },
+    {
+      "name": "Prometheus Metrics",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/metrics", "host": ["{{base_url}}"], "path": ["metrics"] }
+      }
+    }
+  ]
+}

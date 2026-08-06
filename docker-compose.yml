@@ -1,0 +1,306 @@
+########################################################
+# SAFCO FINTECH LMS - Full Event-Driven Local Stack
+########################################################
+version: "3.9"
+
+networks:
+  safco:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  hivemq_data:
+  hivemq_log:
+  elasticsearch_data:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+
+services:
+  #######################################
+  # APPLICATION (Laravel 12 / PHP 8.4)
+  #######################################
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-app
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html
+      - ./storage:/var/www/html/storage
+    environment:
+      - DB_HOST=mysql
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - MQTT_HOST=hivemq
+      - ELASTICSEARCH_HOST=elasticsearch
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+      - hivemq
+    networks:
+      - safco
+
+  #######################################
+  # QUEUE WORKER (Laravel Horizon)
+  #######################################
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-worker
+    restart: unless-stopped
+    command: php artisan queue:work --queue=emails,sms,notifications-high,notifications,media,security,analytics,event-bus,default --tries=5 --max-jobs=1000 --max-time=3600
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+      - redis
+      - rabbitmq
+    networks:
+      - safco
+
+  #######################################
+  # REVERB (Laravel WebSocket server)
+  #######################################
+  reverb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-reverb
+    restart: unless-stopped
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - app
+      - redis
+    networks:
+      - safco
+
+  #######################################
+  # SCHEDULER (cron)
+  #######################################
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: safco-scheduler
+    restart: unless-stopped
+    command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+    networks:
+      - safco
+
+  #######################################
+  # DATABASE - MySQL 8
+  #######################################
+  mysql:
+    image: mysql:8.0
+    container_name: safco-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_2026
+      MYSQL_DATABASE: safco_lms
+      MYSQL_USER: safco_user
+      MYSQL_PASSWORD: safco_secret_2026
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - safco
+
+  #######################################
+  # REDIS - Cache, Queue, Sessions
+  #######################################
+  redis:
+    image: redis:7-alpine
+    container_name: safco-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - safco
+
+  #######################################
+  # RABBITMQ - Internal Message Broker
+  #######################################
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: safco-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: safco_rabbit
+      RABBITMQ_DEFAULT_PASS: safco_rabbit_secret
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - safco
+
+  #######################################
+  # HIVEMQ - MQTT Broker (Real-Time)
+  #######################################
+  hivemq:
+    image: hivemq/hivemq-ce:latest
+    container_name: safco-hivemq
+    restart: unless-stopped
+    ports:
+      - "1884:1883"    # MQTT (changed from 1883 due to conflict)
+      - "8081:8080"    # HiveMQ Control Center
+    volumes:
+      - hivemq_data:/opt/hivemq/data
+      - hivemq_log:/opt/hivemq/log
+    networks:
+      - safco
+
+  #######################################
+  # ELASTICSEARCH - Search + Log storage
+  #######################################
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.1
+    container_name: safco-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - safco
+
+  #######################################
+  # KIBANA - Log Visualization
+  #######################################
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.1
+    container_name: safco-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - safco
+
+  #######################################
+  # LOGSTASH - Log pipeline
+  #######################################
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.14.1
+    container_name: safco-logstash
+    restart: unless-stopped
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline
+    depends_on:
+      - elasticsearch
+    networks:
+      - safco
+
+  #######################################
+  # FILEBEAT - Log shipper
+  #######################################
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.14.1
+    container_name: safco-filebeat
+    restart: unless-stopped
+    user: root
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./storage/logs:/var/log/safco:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - logstash
+    networks:
+      - safco
+
+  #######################################
+  # PROMETHEUS - Metrics collector
+  #######################################
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: safco-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - safco
+
+  #######################################
+  # GRAFANA - Dashboards
+  #######################################
+  grafana:
+    image: grafana/grafana:latest
+    container_name: safco-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=safco_admin_2026
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - safco
+
+  #######################################
+  # LOKI - Log aggregator (for Grafana)
+  #######################################
+  loki:
+    image: grafana/loki:latest
+    container_name: safco-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - safco
+
+  #######################################
+  # MAILHOG - Local email testing
+  #######################################
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: safco-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - safco

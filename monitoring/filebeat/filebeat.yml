@@ -1,0 +1,27 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/safco/*.log
+    tags: ["laravel", "app"]
+    fields:
+      service: safco-lms
+    json.keys_under_root: true
+    json.add_error_key: true
+
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    tags: ["docker"]
+    processors:
+      - add_docker_metadata: ~
+
+processors:
+  - add_host_metadata: ~
+  - add_cloud_metadata: ~
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info
+logging.to_files: true

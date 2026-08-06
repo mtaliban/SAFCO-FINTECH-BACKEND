@@ -1,0 +1,62 @@
+{
+  "title": "SAFCO LMS - User Analytics",
+  "tags": ["safco", "users", "analytics"],
+  "timezone": "Africa/Dar_es_Salaam",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "piechart",
+      "title": "Users by Role",
+      "targets": [
+        { "expr": "safco_lms_users_by_role", "refId": "A", "legendFormat": "{{role}}" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "piechart",
+      "title": "Users by Auth Provider",
+      "targets": [
+        { "expr": "safco_lms_users_by_provider", "refId": "A", "legendFormat": "{{provider}}" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Top Pages by Visits (last 24h)",
+      "datasource": "Elasticsearch",
+      "targets": [
+        {
+          "query": "event_name:page.viewed",
+          "metrics": [{ "type": "count", "id": "1" }],
+          "bucketAggs": [
+            { "type": "terms", "field": "payload.page.keyword", "id": "2", "settings": { "size": "20", "order": "desc" } }
+          ]
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "New Registrations by Day (last 30d)",
+      "targets": [
+        { "expr": "increase(safco_lms_user_registrations_total[24h])", "refId": "A" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "2FA Adoption %",
+      "targets": [
+        { "expr": "(safco_lms_users_with_2fa / safco_lms_users_total) * 100", "refId": "A" }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 }
+    }
+  ]
+}
