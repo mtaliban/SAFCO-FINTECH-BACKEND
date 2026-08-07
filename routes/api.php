@@ -6,6 +6,9 @@ use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SocialAuthController;
 use App\Http\Controllers\Api\V1\Auth\TwoFactorController;
+use App\Http\Controllers\Api\V1\Quiz\LiveQuizController;
+use App\Http\Controllers\Api\V1\Quiz\QuestionBankController;
+use App\Http\Controllers\Api\V1\Quiz\QuizController;
 use App\Http\Controllers\Api\V1\Users\LoginHistoryController;
 use App\Http\Controllers\Api\V1\Users\UserController;
 use App\Http\Controllers\Api\V1\Users\UserProfileController;
@@ -92,4 +95,50 @@ Route::prefix('v1')->group(function () {
     ]))->name('health');
 
     Route::get('metrics', \App\Http\Controllers\Api\V1\MetricsController::class)->name('metrics');
+
+    /* ============================================================
+     * PUBLIC PLAY ENDPOINTS - Students join Kahoot without account
+     * ============================================================ */
+    Route::prefix('play')->group(function () {
+        Route::post('join', [LiveQuizController::class, 'playJoin'])->name('play.join');
+        Route::get('session/{pin}', [LiveQuizController::class, 'playSessionState'])->name('play.session.state');
+        Route::post('session/{pin}/answer', [LiveQuizController::class, 'playSubmitAnswer'])->name('play.session.answer');
+    });
+
+    /* ============================================================
+     * QUIZ MODULE - Trainer / Admin endpoints (auth required)
+     * ============================================================ */
+    Route::middleware(['auth:sanctum', 'active.user'])->group(function () {
+
+        // Question Banks + Questions
+        Route::apiResource('question-banks', QuestionBankController::class)
+            ->only(['index', 'store', 'show'])
+            ->parameters(['question-banks' => 'questionBank']);
+        Route::post('question-banks/{questionBank:uuid}/questions', [QuestionBankController::class, 'addQuestion'])
+            ->name('question-banks.questions.store');
+        Route::patch('questions/{question:uuid}', [QuestionBankController::class, 'updateQuestion'])
+            ->name('questions.update');
+        Route::delete('questions/{question:uuid}', [QuestionBankController::class, 'deleteQuestion'])
+            ->name('questions.destroy');
+
+        // Quizzes
+        Route::apiResource('quizzes', QuizController::class)
+            ->parameters(['quizzes' => 'quiz']);
+        Route::post('quizzes/{quiz:uuid}/questions/sync', [QuizController::class, 'syncQuestions'])
+            ->name('quizzes.questions.sync');
+        Route::post('quizzes/{quiz:uuid}/publish', [QuizController::class, 'publish'])
+            ->name('quizzes.publish');
+
+        // Live host controls
+        Route::prefix('quizzes/{quiz:uuid}')->group(function () {
+            Route::post('host', [LiveQuizController::class, 'hostStart'])->name('quizzes.host.start');
+        });
+
+        Route::prefix('sessions/{session:uuid}')->group(function () {
+            Route::post('start-question', [LiveQuizController::class, 'hostStartQuestion'])->name('sessions.question.start');
+            Route::post('end-question', [LiveQuizController::class, 'hostEndQuestion'])->name('sessions.question.end');
+            Route::post('complete', [LiveQuizController::class, 'hostComplete'])->name('sessions.complete');
+            Route::get('leaderboard', [LiveQuizController::class, 'leaderboard'])->name('sessions.leaderboard');
+        });
+    });
 });

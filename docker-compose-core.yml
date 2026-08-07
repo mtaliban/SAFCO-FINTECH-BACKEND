@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
     ports:
       - "1884:1883"
-      - "8081:8080"
+      - "8082:8080"
     volumes:
       - hivemq_data:/opt/hivemq/data
     networks:
