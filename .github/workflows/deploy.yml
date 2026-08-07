@@ -1,36 +1,94 @@
-name: CD - Build & Deploy
+name: CD
 
 on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: safcofintech/lms-backend
-  REGISTRY: docker.io
 
 jobs:
-  build-and-push:
-    name: Build & Push to Docker Hub
+  docker-build:
+    name: Docker build (verify Dockerfile works)
     runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Setup PHP 8.4 (host-side composer install so Dockerfile can COPY vendor/)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, intl, pdo_mysql, redis, bcmath, gd, zip, sockets
+          coverage: none
+          tools: composer:v2
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
+
+      - name: Build Docker image (verify build succeeds)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: ${{ env.DOCKER_IMAGE }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  push-to-dockerhub:
+    name: Push image to Docker Hub
+    runs-on: ubuntu-latest
+    needs: docker-build
+    # Only runs if the DOCKERHUB_USERNAME secret has been added to the repo.
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Docker Hub credentials
+        id: check
+        run: |
+          if [[ -n "${{ secrets.DOCKERHUB_USERNAME }}" && -n "${{ secrets.DOCKERHUB_TOKEN }}" ]]; then
+            echo "have_creds=true" >> $GITHUB_OUTPUT
+          else
+            echo "have_creds=false" >> $GITHUB_OUTPUT
+            echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets are not configured — skipping push."
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.have_creds == 'true'
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to Docker Hub
+        if: steps.check.outputs.have_creds == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Setup PHP + composer
+        if: steps.check.outputs.have_creds == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer:v2
+
+      - name: Install PHP dependencies
+        if: steps.check.outputs.have_creds == 'true'
+        run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
+
       - name: Extract metadata
+        if: steps.check.outputs.have_creds == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -38,74 +96,17 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build & Push
+      - name: Build & push
+        if: steps.check.outputs.have_creds == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  deploy-staging:
-    name: Deploy to Staging (AWS EC2)
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main'
-    environment: staging
-    steps:
-      - name: SSH deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            cd /opt/safco-lms
-            docker compose pull
-            docker compose up -d --no-deps app worker reverb scheduler
-            docker compose exec -T app php artisan migrate --force
-            docker compose exec -T app php artisan config:cache
-            docker compose exec -T app php artisan route:cache
-
-  deploy-production:
-    name: Deploy to Production (AWS EC2)
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v')
-    environment:
-      name: production
-      url: https://api.safcofintech.co.tz
-    steps:
-      - name: SSH deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          script: |
-            cd /opt/safco-lms
-            docker compose pull
-            docker compose up -d --no-deps app worker reverb scheduler
-            docker compose exec -T app php artisan migrate --force
-            docker compose exec -T app php artisan config:cache
-            docker compose exec -T app php artisan route:cache
-            docker compose exec -T app php artisan queue:restart
-
-      - name: Notify Sentry of deployment
-        uses: getsentry/action-release@v1
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: safco-fintech
-          SENTRY_PROJECT: lms-backend
-        with:
-          environment: production
-          version: ${{ github.ref_name }}
