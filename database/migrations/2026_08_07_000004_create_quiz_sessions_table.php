@@ -98,7 +98,7 @@ return new class extends Migration
             $table->integer('answered_at_position')->nullable();
             $table->timestamps();
 
-            $table->unique(['session_id', 'participant_id', 'question_id']);
+            $table->unique(['session_id', 'participant_id', 'question_id'], 'session_answer_unique');
             $table->index(['session_id', 'question_id']);
         });
     }
