@@ -1,24 +1,22 @@
 ########################################################
 # SAFCO FINTECH LMS - Backend Continuous Deployment
 #
-# On push to `main` (or tag v*.*.*):
+# Triggered by CI workflow completion on main branch.
+# Runs ONLY if CI passed. Does:
 #   1. Build production Docker image
 #   2. Push to Docker Hub (mtalibani/safco-backend)
-#   3. SSH into EC2:
-#        - install Docker if missing (first-run bootstrap)
-#        - docker login
-#        - generate .env from GitHub secrets
-#        - pull image, restart stack, migrate
+#   3. SSH into EC2, generate .env, pull image, deploy
 #   4. Health-check
-#
-# Required repository secrets (see DEPLOY.md for the list).
 ########################################################
 name: CD
 
 on:
-  push:
+  # Trigger only after CI workflow succeeds on main.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    tags: ["v*.*.*"]
+  # Manual re-deploy button.
   workflow_dispatch:
 
 env:
@@ -27,51 +25,22 @@ env:
 
 jobs:
   ##########################################
-  # 0. Run PHPUnit tests — must pass before we build
-  ##########################################
-  test:
-    name: PHPUnit tests (gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup PHP 8.4
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-          extensions: mbstring, intl, pdo_sqlite, sqlite3, bcmath, gd, zip, sockets, redis
-          coverage: none
-          tools: composer:v2
-
-      - name: Cache Composer packages
-        uses: actions/cache@v4
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-
-      - name: Install PHP dependencies
-        run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
-
-      - name: Prepare .env for testing
-        run: |
-          cp .env.example .env
-          php artisan key:generate --force
-
-      - name: Run PHPUnit tests
-        run: ./vendor/bin/phpunit --testdox
-
-  ##########################################
-  # 1. Build + push Docker image (only if tests pass)
+  # 1. Build + push Docker image
   ##########################################
   build-and-push:
     name: Build & push image
     runs-on: ubuntu-latest
-    needs: test
+    # Skip if CI workflow did NOT succeed (workflow_run always fires).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     outputs:
       short_sha: ${{ steps.sha.outputs.short }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run defaults to main branch's ref; be explicit for clarity.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Compute short SHA
         id: sha
@@ -117,17 +86,18 @@ jobs:
           platforms: linux/amd64
 
   ##########################################
-  # 2. Bootstrap + deploy to EC2 over SSH
+  # 2. Deploy to EC2
   ##########################################
   deploy-ec2:
     name: Deploy to EC2
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: github.ref == 'refs/heads/main'
     env:
       IMAGE_SHA: sha-${{ needs.build-and-push.outputs.short_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Ensure Docker + compose plugin installed on EC2
         uses: appleboy/ssh-action@v1.2.0
@@ -140,7 +110,6 @@ jobs:
           script_stop: true
           script: |
             set -e
-            # Install docker if the command is not present.
             if ! command -v docker >/dev/null 2>&1; then
               echo "==> Installing Docker Engine ..."
               sudo apt-get update
@@ -154,8 +123,6 @@ jobs:
               sudo usermod -aG docker "$USER"
               sudo systemctl enable --now docker
             fi
-
-            # Ensure deploy dir exists.
             DEPLOY_PATH="${EC2_DEPLOY_PATH:-$DEFAULT_DEPLOY_PATH}"
             mkdir -p "$DEPLOY_PATH"
 
@@ -188,25 +155,18 @@ jobs:
       - name: Generate .env on EC2 from GitHub secrets
         uses: appleboy/ssh-action@v1.2.0
         env:
-          # --- Runtime app config ---
           APP_KEY: ${{ secrets.APP_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          # --- Database ---
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
-          # --- Mail ---
           MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-          # --- AI providers ---
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          # --- Reverb WebSocket ---
           REVERB_APP_KEY: ${{ secrets.REVERB_APP_KEY }}
           REVERB_APP_SECRET: ${{ secrets.REVERB_APP_SECRET }}
-          # --- Security ---
           CERTIFICATE_SIGNING_KEY: ${{ secrets.CERTIFICATE_SIGNING_KEY }}
-          # --- AWS / S3 (mapped from user's naming) ---
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -225,8 +185,6 @@ jobs:
           script: |
             DEPLOY_PATH="${EC2_DEPLOY_PATH:-/home/ubuntu/safco-backend}"
             cd "$DEPLOY_PATH"
-
-            # Write .env atomically (write to temp, then move).
             umask 077
             cat > .env.new <<ENVEOF
             # Generated by GitHub Actions on every deploy — do NOT edit by hand.

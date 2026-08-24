@@ -1,13 +1,14 @@
 ########################################################
-# SAFCO FINTECH LMS - Backend CI (Pull Requests only)
+# SAFCO FINTECH LMS - Backend CI
 #
-# Runs on PRs targeting main/develop. Gives fast feedback
-# before merge. Main branch pushes are gated by the CD
-# workflow's own test job, so we don't duplicate work here.
+# Runs on every push + PR. Must PASS before CD workflow
+# is triggered (CD listens for `workflow_run` completion).
 ########################################################
 name: CI
 
 on:
+  push:
+    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
