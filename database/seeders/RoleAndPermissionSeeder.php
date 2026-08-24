@@ -61,7 +61,13 @@ class RoleAndPermissionSeeder extends Seeder
                 'users.view', 'courses.view', 'reports.view', 'reports.export',
             ])->get());
 
-            Role::firstOrCreate(['name' => 'facilitator', 'guard_name' => $guard, 'type' => 'facilitator']);
+            // Facilitator: helps trainer run sessions but cannot create/delete quizzes
+            $facilitator = Role::firstOrCreate(['name' => 'facilitator', 'guard_name' => $guard, 'type' => 'facilitator']);
+            $facilitator->syncPermissions(Permission::where('guard_name', $guard)->whereIn('name', [
+                'courses.view', 'quizzes.view', 'quizzes.host',
+                'attendance.mark', 'attendance.view',
+                'reports.view',
+            ])->get());
         }
     }
 }

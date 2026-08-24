@@ -138,7 +138,17 @@ class LiveQuizSessionService
         // Push leaderboard right after answer reveal
         $this->broadcastLeaderboard($session);
 
-        return $stats;
+        return [
+            'question' => [
+                'id' => $question->uuid,
+                'text' => $question->text,
+                'type' => $question->type,
+                'options' => $question->options,
+                'explanation' => $question->explanation,
+            ],
+            'correct_answer' => $question->correct_answer,
+            'stats' => $stats,
+        ];
     }
 
     public function complete(QuizSession $session): array
@@ -183,7 +193,9 @@ class LiveQuizSessionService
             throw new \DomainException("Nickname '{$nickname}' is already taken in this session.");
         }
 
-        $participant = DB::transaction(function () use ($session, $nickname, $data) {
+        $isLate = $session->started_at !== null && in_array($session->status, ['question_active', 'question_ended', 'showing_leaderboard'], true);
+
+        $participant = DB::transaction(function () use ($session, $nickname, $data, $isLate) {
             $p = QuizSessionParticipant::create([
                 'session_id' => $session->id,
                 'user_id' => $data['user_id'] ?? null,
@@ -194,6 +206,7 @@ class LiveQuizSessionService
                 'device_type' => $data['device_type'] ?? null,
                 'joined_at' => now(),
                 'last_seen_at' => now(),
+                'is_late_join' => $isLate,
             ]);
 
             $session->increment('participant_count');
@@ -239,8 +252,10 @@ class LiveQuizSessionService
         }
 
         $startedAt = $session->current_question_started_at;
-        $responseTimeMs = (int) (now()->diffInMilliseconds($startedAt));
+        // Carbon 3 preserves sign; take absolute so response time is always positive
+        $responseTimeMs = (int) abs($startedAt->diffInMilliseconds(now()));
 
+        $quizSettings = $session->quiz;
         $result = $this->scoring->score(
             $question,
             $answer,
@@ -248,6 +263,7 @@ class LiveQuizSessionService
             $participant->current_streak,
             $question->pivot->override_points ?? null,
             $question->pivot->override_time_seconds ?? null,
+            (bool) ($quizSettings->award_bonus_for_speed ?? true),
         );
 
         return DB::transaction(function () use ($session, $participant, $question, $answer, $responseTimeMs, $result) {
@@ -329,7 +345,10 @@ class LiveQuizSessionService
                 'avatar_url' => $p->avatar_url,
                 'total_score' => $p->total_score,
                 'correct_answers' => $p->correct_answers,
+                'incorrect_answers' => $p->incorrect_answers,
+                'current_streak' => $p->current_streak,
                 'longest_streak' => $p->longest_streak,
+                'is_late_join' => (bool) $p->is_late_join,
             ])
             ->all();
     }

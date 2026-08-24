@@ -75,13 +75,40 @@ class Question extends Model
         $correct = $this->correct_answer;
 
         return match ($this->type) {
-            'multiple_choice', 'fill_in_blank' => $this->normalize($submitted) === $this->normalize($correct),
-            'true_false' => (bool) $submitted === (bool) $correct,
+            'multiple_choice' => $this->normalize($submitted) === $this->normalize($correct),
+            'true_false' => filter_var($submitted, FILTER_VALIDATE_BOOLEAN) === filter_var(is_array($correct) ? ($correct[0] ?? null) : $correct, FILTER_VALIDATE_BOOLEAN),
             'multiple_select' => $this->arraysMatch((array) $submitted, (array) $correct),
             'matching' => $this->matchingEquals((array) $submitted, (array) $correct),
-            'short_answer' => false, // manual grading
+            'fill_in_blank' => $this->matchesAny($submitted, (array) $correct),
+            'short_answer' => $this->matchesKeywords($submitted),
             default => false,
         };
+    }
+
+    /**
+     * For short_answer, auto-mark correct if any keyword from metadata.accept_keywords
+     * appears in the student's response (case-insensitive). If no keywords defined,
+     * return false → needs manual grading.
+     */
+    protected function matchesKeywords(mixed $submitted): bool
+    {
+        $keywords = $this->metadata['accept_keywords'] ?? null;
+        if (!is_array($keywords) || empty($keywords)) return false;
+        $text = strtolower((string) $submitted);
+        foreach ($keywords as $kw) {
+            if ($kw && str_contains($text, strtolower((string) $kw))) return true;
+        }
+        return false;
+    }
+
+    /** Case-insensitive: submitted matches ANY of the acceptable answers. */
+    protected function matchesAny(mixed $submitted, array $acceptable): bool
+    {
+        $s = $this->normalize($submitted);
+        foreach ($acceptable as $a) {
+            if ($this->normalize($a) === $s) return true;
+        }
+        return false;
     }
 
     protected function normalize(mixed $v): string

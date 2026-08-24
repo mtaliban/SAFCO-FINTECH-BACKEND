@@ -1,33 +1,20 @@
+########################################################
+# SAFCO FINTECH LMS - Backend CI (Pull Requests only)
+#
+# Runs on PRs targeting main/develop. Gives fast feedback
+# before merge. Main branch pushes are gated by the CD
+# workflow's own test job, so we don't duplicate work here.
+########################################################
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
 jobs:
-  build:
-    name: Build & Sanity Check
+  test:
+    name: PHPUnit · Pint
     runs-on: ubuntu-latest
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: safco_lms_test
-        ports: [3306:3306]
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-
-      redis:
-        image: redis:7-alpine
-        ports: [6379:6379]
-
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +22,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
-          extensions: mbstring, intl, pdo_mysql, redis, bcmath, gd, zip, sockets
+          extensions: mbstring, intl, pdo_sqlite, sqlite3, bcmath, gd, zip, sockets, redis
           coverage: none
           tools: composer:v2
 
@@ -49,25 +36,13 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
 
-      - name: Prepare .env
+      - name: Prepare .env for testing
         run: |
           cp .env.example .env
           php artisan key:generate --force
-          sed -i 's|DB_HOST=mysql|DB_HOST=127.0.0.1|g' .env
-          sed -i 's|DB_DATABASE=safco_lms|DB_DATABASE=safco_lms_test|g' .env
-          sed -i 's|DB_USERNAME=safco_user|DB_USERNAME=root|g' .env
-          sed -i 's|DB_PASSWORD=safco_secret_2026|DB_PASSWORD=root|g' .env
-          sed -i 's|REDIS_HOST=redis|REDIS_HOST=127.0.0.1|g' .env
-          sed -i 's|CACHE_STORE=redis|CACHE_STORE=array|g' .env
-          sed -i 's|SESSION_DRIVER=redis|SESSION_DRIVER=array|g' .env
-          sed -i 's|QUEUE_CONNECTION=redis|QUEUE_CONNECTION=sync|g' .env
-          sed -i 's|BROADCAST_CONNECTION=reverb|BROADCAST_CONNECTION=log|g' .env
 
-      - name: Run migrations
-        run: php artisan migrate --force
-
-      - name: Boot Laravel (route:list smoke test)
-        run: php artisan route:list --path=api/v1 > /dev/null
+      - name: Run PHPUnit tests
+        run: ./vendor/bin/phpunit --testdox
 
       - name: Laravel Pint (code style, non-blocking)
         continue-on-error: true

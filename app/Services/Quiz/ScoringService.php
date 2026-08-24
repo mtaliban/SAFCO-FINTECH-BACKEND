@@ -28,6 +28,7 @@ class ScoringService
         int $currentStreak = 0,
         ?int $overridePoints = null,
         ?int $overrideTimeSeconds = null,
+        bool $awardSpeedBonus = true,
     ): array {
         $isCorrect = $question->checkAnswer($submittedAnswer);
 
@@ -45,12 +46,16 @@ class ScoringService
         $timeLimit = $overrideTimeSeconds ?? $question->time_limit_seconds;
         $timeLimitMs = max($timeLimit * 1000, 1);
 
-        // Kahoot formula: 1 - (responseTime / timeLimit) * 0.5
-        $timeFactor = 1 - min(1, $responseTimeMs / $timeLimitMs) * 0.5;
-        $timeFactor = max(0.5, $timeFactor); // never less than 50% for correct answers
-
-        $earned = (int) ceil($basePoints * $timeFactor);
-        $speedBonus = max(0, $earned - (int) ($basePoints * 0.5));
+        if ($awardSpeedBonus) {
+            // Kahoot formula: 1 - (responseTime / timeLimit) * 0.5, clamped ≥ 50%
+            $timeFactor = max(0.5, 1 - min(1, $responseTimeMs / $timeLimitMs) * 0.5);
+            $earned = (int) ceil($basePoints * $timeFactor);
+            $speedBonus = max(0, $earned - (int) ($basePoints * 0.5));
+        } else {
+            // No speed bonus — flat correct = full base points
+            $earned = (int) $basePoints;
+            $speedBonus = 0;
+        }
 
         $streakLevel = min(4, $currentStreak);
         $streakBonus = self::STREAK_BONUS[$streakLevel] ?? 0;

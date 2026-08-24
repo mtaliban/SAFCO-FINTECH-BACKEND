@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Services\Auth\AuthService;
 use App\Services\Auth\OtpService;
+use App\Services\Notifications\NotificationDispatcher;
 use Illuminate\Http\JsonResponse;
 
 class RegisterController extends Controller
@@ -14,6 +15,7 @@ class RegisterController extends Controller
     public function __construct(
         protected AuthService $auth,
         protected OtpService $otp,
+        protected NotificationDispatcher $notifications,
     ) {
     }
 
@@ -33,6 +35,12 @@ class RegisterController extends Controller
             userId: $user->id,
             ipAddress: $request->ip(),
         );
+
+        // SRS Module 15 — send welcome email + in-app greeting via dispatcher.
+        $this->notifications->dispatch($user, 'account.welcome', [
+            'action_url' => config('app.url') . '/dashboard',
+            'action_label' => 'Ingia dashboard',
+        ]);
 
         return $this->success(
             data: [

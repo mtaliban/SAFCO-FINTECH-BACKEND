@@ -81,6 +81,12 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(UserProfile::class);
     }
 
+    /** SRS Module 13 — trainer's public/professional profile. */
+    public function trainerProfile(): HasOne
+    {
+        return $this->hasOne(TrainerProfile::class);
+    }
+
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);

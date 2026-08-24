@@ -14,7 +14,8 @@ volumes:
   mysql_data:
   redis_data:
   rabbitmq_data:
-  hivemq_data:
+  mqtt_data:
+  mqtt_log:
 
 services:
   app:
@@ -31,12 +32,12 @@ services:
       - DB_HOST=mysql
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
-      - MQTT_HOST=hivemq
+      - MQTT_HOST=mqtt
     depends_on:
       - mysql
       - redis
       - rabbitmq
-      - hivemq
+      - mqtt
     networks:
       - safco
 
@@ -100,15 +101,18 @@ services:
     networks:
       - safco
 
-  hivemq:
-    image: hivemq/hivemq-ce:latest
-    container_name: safco-hivemq
+  # Local self-hosted MQTT broker (Eclipse Mosquitto) — no cloud dependency
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: safco-mqtt
     restart: unless-stopped
     ports:
-      - "1884:1883"
-      - "8082:8080"
+      - "1884:1883"    # MQTT
+      - "9002:9001"    # MQTT over WebSockets (for browser clients)
     volumes:
-      - hivemq_data:/opt/hivemq/data
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
     networks:
       - safco
 

@@ -14,13 +14,16 @@ class Quiz extends Model
 {
     use HasFactory, SoftDeletes;
 
+    public const EXAM_TYPES = ['practice', 'mock', 'final_certification'];
+
     protected $fillable = [
-        'uuid', 'question_bank_id', 'created_by', 'name', 'slug', 'description',
-        'cover_image', 'mode', 'category', 'difficulty', 'duration_minutes',
+        'uuid', 'question_bank_id', 'randomize_from_bank_id', 'course_module_id', 'created_by',
+        'name', 'slug', 'description', 'cover_image', 'mode', 'exam_type',
+        'category', 'difficulty', 'duration_minutes',
         'number_of_questions', 'passing_mark_percentage', 'max_attempts',
         'default_time_per_question', 'shuffle_questions', 'shuffle_options',
         'show_correct_after_each', 'show_leaderboard', 'award_bonus_for_speed',
-        'allow_late_join', 'status', 'published_at', 'settings',
+        'allow_late_join', 'status', 'published_at', 'settings', 'anti_cheat_settings',
         'total_plays', 'avg_score',
     ];
 
@@ -35,8 +38,25 @@ class Quiz extends Model
             'allow_late_join' => 'boolean',
             'published_at' => 'datetime',
             'settings' => 'array',
+            'anti_cheat_settings' => 'array',
             'avg_score' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Effective attempts remaining for a given user (null = unlimited).
+     * Practice = unlimited. Mock = max_attempts. Final = 1 hard cap.
+     */
+    public function attemptsRemainingFor(User $user): ?int
+    {
+        if ($this->exam_type === 'practice') return null;
+
+        $cap = $this->exam_type === 'final_certification' ? 1 : (int) ($this->max_attempts ?? 1);
+        $used = $this->attempts()
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['in_progress', 'completed', 'expired'])
+            ->count();
+        return max(0, $cap - $used);
     }
 
     protected static function booted(): void
@@ -49,6 +69,7 @@ class Quiz extends Model
 
     public function bank(): BelongsTo { return $this->belongsTo(QuestionBank::class, 'question_bank_id'); }
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
+    public function courseModule(): BelongsTo { return $this->belongsTo(CourseModule::class, 'course_module_id'); }
 
     public function questions(): BelongsToMany
     {

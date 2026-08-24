@@ -1,3 +1,18 @@
+########################################################
+# SAFCO FINTECH LMS - Backend Continuous Deployment
+#
+# On push to `main` (or tag v*.*.*):
+#   1. Build production Docker image
+#   2. Push to Docker Hub (mtalibani/safco-backend)
+#   3. SSH into EC2:
+#        - install Docker if missing (first-run bootstrap)
+#        - docker login
+#        - generate .env from GitHub secrets
+#        - pull image, restart stack, migrate
+#   4. Health-check
+#
+# Required repository secrets (see DEPLOY.md for the list).
+########################################################
 name: CD
 
 on:
@@ -7,106 +22,337 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: safcofintech/lms-backend
+  DOCKER_IMAGE: mtalibani/safco-backend
+  DEFAULT_DEPLOY_PATH: /home/ubuntu/safco-backend
 
 jobs:
-  docker-build:
-    name: Docker build (verify Dockerfile works)
+  ##########################################
+  # 0. Run PHPUnit tests — must pass before we build
+  ##########################################
+  test:
+    name: PHPUnit tests (gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, intl, pdo_sqlite, sqlite3, bcmath, gd, zip, sockets, redis
+          coverage: none
+          tools: composer:v2
 
       - name: Cache Composer packages
         uses: actions/cache@v4
         with:
           path: vendor
           key: composer-${{ hashFiles('composer.lock') }}
-
-      - name: Setup PHP 8.4 (host-side composer install so Dockerfile can COPY vendor/)
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-          extensions: mbstring, intl, pdo_mysql, redis, bcmath, gd, zip, sockets
-          coverage: none
-          tools: composer:v2
+          restore-keys: composer-
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
 
-      - name: Build Docker image (verify build succeeds)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          tags: ${{ env.DOCKER_IMAGE }}:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Prepare .env for testing
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
 
-  push-to-dockerhub:
-    name: Push image to Docker Hub
+      - name: Run PHPUnit tests
+        run: ./vendor/bin/phpunit --testdox
+
+  ##########################################
+  # 1. Build + push Docker image (only if tests pass)
+  ##########################################
+  build-and-push:
+    name: Build & push image
     runs-on: ubuntu-latest
-    needs: docker-build
-    # Only runs if the DOCKERHUB_USERNAME secret has been added to the repo.
-    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+    needs: test
+    outputs:
+      short_sha: ${{ steps.sha.outputs.short }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check Docker Hub credentials
-        id: check
-        run: |
-          if [[ -n "${{ secrets.DOCKERHUB_USERNAME }}" && -n "${{ secrets.DOCKERHUB_TOKEN }}" ]]; then
-            echo "have_creds=true" >> $GITHUB_OUTPUT
-          else
-            echo "have_creds=false" >> $GITHUB_OUTPUT
-            echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN secrets are not configured — skipping push."
-          fi
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short=11 HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        if: steps.check.outputs.have_creds == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: steps.check.outputs.have_creds == 'true'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Setup PHP + composer
-        if: steps.check.outputs.have_creds == 'true'
+      - name: Setup PHP 8.4 for Composer
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
           tools: composer:v2
+          coverage: none
 
-      - name: Install PHP dependencies
-        if: steps.check.outputs.have_creds == 'true'
-        run: composer install --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
-
-      - name: Extract metadata
-        if: steps.check.outputs.have_creds == 'true'
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Cache Composer packages
+        uses: actions/cache@v4
         with:
-          images: ${{ env.DOCKER_IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install PHP dependencies (production only)
+        run: composer install --no-dev --optimize-autoloader --prefer-dist --no-progress --no-interaction --ignore-platform-reqs
 
       - name: Build & push
-        if: steps.check.outputs.have_creds == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  ##########################################
+  # 2. Bootstrap + deploy to EC2 over SSH
+  ##########################################
+  deploy-ec2:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    env:
+      IMAGE_SHA: sha-${{ needs.build-and-push.outputs.short_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure Docker + compose plugin installed on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: DEFAULT_DEPLOY_PATH
+          script_stop: true
+          script: |
+            set -e
+            # Install docker if the command is not present.
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "==> Installing Docker Engine ..."
+              sudo apt-get update
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker "$USER"
+              sudo systemctl enable --now docker
+            fi
+
+            # Ensure deploy dir exists.
+            DEPLOY_PATH="${EC2_DEPLOY_PATH:-$DEFAULT_DEPLOY_PATH}"
+            mkdir -p "$DEPLOY_PATH"
+
+      - name: Docker login on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: DOCKER_USERNAME,DOCKER_TOKEN
+          script_stop: true
+          script: |
+            echo "$DOCKER_TOKEN" | sudo docker login -u "$DOCKER_USERNAME" --password-stdin
+
+      - name: Copy compose file + deploy script to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          source: "docker-compose.prod.yml,deploy.sh"
+          target: ${{ secrets.EC2_DEPLOY_PATH != '' && secrets.EC2_DEPLOY_PATH || '/home/ubuntu/safco-backend' }}
+          overwrite: true
+
+      - name: Generate .env on EC2 from GitHub secrets
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # --- Runtime app config ---
+          APP_KEY: ${{ secrets.APP_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          # --- Database ---
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+          # --- Mail ---
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          # --- AI providers ---
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # --- Reverb WebSocket ---
+          REVERB_APP_KEY: ${{ secrets.REVERB_APP_KEY }}
+          REVERB_APP_SECRET: ${{ secrets.REVERB_APP_SECRET }}
+          # --- Security ---
+          CERTIFICATE_SIGNING_KEY: ${{ secrets.CERTIFICATE_SIGNING_KEY }}
+          # --- AWS / S3 (mapped from user's naming) ---
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: >-
+            APP_KEY,APP_URL,FRONTEND_URL,DB_PASSWORD,DB_ROOT_PASSWORD,MAIL_PASSWORD,
+            GEMINI_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,
+            REVERB_APP_KEY,REVERB_APP_SECRET,CERTIFICATE_SIGNING_KEY,
+            AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,S3_BUCKET_NAME
+          script_stop: true
+          script: |
+            DEPLOY_PATH="${EC2_DEPLOY_PATH:-/home/ubuntu/safco-backend}"
+            cd "$DEPLOY_PATH"
+
+            # Write .env atomically (write to temp, then move).
+            umask 077
+            cat > .env.new <<ENVEOF
+            # Generated by GitHub Actions on every deploy — do NOT edit by hand.
+            APP_NAME="SAFCO FINTECH LMS"
+            APP_ENV=production
+            APP_KEY=${APP_KEY}
+            APP_DEBUG=false
+            APP_TIMEZONE=Africa/Dar_es_Salaam
+            APP_URL=${APP_URL}
+            APP_LOCALE=en
+            APP_FALLBACK_LOCALE=en
+
+            API_VERSION=v1
+            API_PREFIX=api
+            FRONTEND_URL=${FRONTEND_URL}
+
+            LOG_CHANNEL=stack
+            LOG_LEVEL=warning
+            LOG_STACK=daily
+
+            DB_CONNECTION=mysql
+            DB_HOST=mysql
+            DB_PORT=3306
+            DB_DATABASE=safco_lms
+            DB_USERNAME=safco_user
+            DB_PASSWORD=${DB_PASSWORD}
+            DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+
+            CACHE_STORE=redis
+            SESSION_DRIVER=redis
+            SESSION_LIFETIME=120
+            REDIS_HOST=redis
+            REDIS_PORT=6379
+            REDIS_PASSWORD=null
+            REDIS_CLIENT=predis
+
+            QUEUE_CONNECTION=redis
+            HORIZON_PREFIX=safco_horizon
+
+            BROADCAST_CONNECTION=reverb
+            REVERB_APP_ID=safco-lms
+            REVERB_APP_KEY=${REVERB_APP_KEY}
+            REVERB_APP_SECRET=${REVERB_APP_SECRET}
+            REVERB_HOST=reverb
+            REVERB_PORT=8080
+            REVERB_SCHEME=http
+            REVERB_SERVER_HOST=0.0.0.0
+
+            MAIL_MAILER=smtp
+            MAIL_HOST=smtp.gmail.com
+            MAIL_PORT=587
+            MAIL_USERNAME=Hamisiselemani039@gmail.com
+            MAIL_PASSWORD=${MAIL_PASSWORD}
+            MAIL_ENCRYPTION=tls
+            MAIL_FROM_ADDRESS=Hamisiselemani039@gmail.com
+            MAIL_FROM_NAME="SAFCO FINTECH LMS"
+
+            FILESYSTEM_DISK=s3
+            AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+            AWS_DEFAULT_REGION=${AWS_REGION}
+            AWS_BUCKET=${S3_BUCKET_NAME}
+            AWS_URL=
+            AWS_ENDPOINT=
+            AWS_USE_PATH_STYLE_ENDPOINT=false
+            BACKUP_DISK=s3
+            AWS_BACKUP_BUCKET=${S3_BUCKET_NAME}
+
+            AI_TUTOR_PROVIDER=gemini
+            GEMINI_API_KEY=${GEMINI_API_KEY}
+            GEMINI_MODEL=gemini-3.6-flash
+            GEMINI_TIMEOUT=30
+
+            AI_QUESTION_PROVIDER=groq
+            GROQ_API_KEY=${GROQ_API_KEY}
+            GROQ_MODEL=groq/compound
+
+            OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+            OPENROUTER_MODEL=openrouter/free
+
+            SANCTUM_TOKEN_EXPIRATION=86400
+            SESSION_SECURE_COOKIE=true
+            SESSION_ENCRYPT=true
+            SESSION_SAME_SITE=lax
+            CORS_ALLOWED_ORIGINS=${FRONTEND_URL}
+            CERTIFICATE_SIGNING_KEY=${CERTIFICATE_SIGNING_KEY}
+
+            RATE_LIMIT_API=60
+            RATE_LIMIT_AUTH=5
+            RATE_LIMIT_OTP=3
+
+            ACTIVITY_LOG_ENABLED=true
+            ENVEOF
+            mv .env.new .env
+            chmod 600 .env
+
+      - name: Run deploy script on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_SHA }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          envs: IMAGE_TAG
+          script_stop: true
+          command_timeout: "10m"
+          script: |
+            DEPLOY_PATH="${EC2_DEPLOY_PATH:-/home/ubuntu/safco-backend}"
+            cd "$DEPLOY_PATH"
+            chmod +x deploy.sh
+            sudo ./deploy.sh mtalibani/safco-backend "$IMAGE_TAG"
+
+      - name: Smoke-test health endpoint
+        run: |
+          echo "Waiting 20s for the app to warm up..."
+          sleep 20
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sfk -o /dev/null -w "%{http_code}" "http://${{ secrets.EC2_HOST }}:8000/api/v1/health" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "OK: /api/v1/health returned 200 on attempt $attempt."
+              exit 0
+            fi
+            echo "attempt $attempt: got HTTP $code — retrying in 10s..."
+            sleep 10
+          done
+          echo "!! Health endpoint never returned 200. Check EC2 logs: docker compose logs app" >&2
+          exit 1

@@ -20,6 +20,10 @@ class QuestionResource extends JsonResource
                 $request->user()?->hasAnyRole(['system_admin', 'trainer']),
                 $this->correct_answer
             ),
+            'metadata' => $this->when(
+                $request->user()?->hasAnyRole(['system_admin', 'trainer']),
+                $this->metadata
+            ),
             'points' => $this->points,
             'time_limit_seconds' => $this->time_limit_seconds,
             'difficulty' => $this->difficulty,

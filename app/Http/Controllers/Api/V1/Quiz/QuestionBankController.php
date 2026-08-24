@@ -47,6 +47,29 @@ class QuestionBankController extends Controller
         return $this->success($questionBank->load('questions'));
     }
 
+    /** GET /api/v1/question-banks/{uuid}/questions — paginated + filterable */
+    public function listQuestions(QuestionBank $questionBank, Request $request): JsonResponse
+    {
+        $q = $questionBank->questions();
+
+        if ($type = $request->query('type')) $q->where('type', $type);
+        if ($diff = $request->query('difficulty')) $q->where('difficulty', $diff);
+        if ($search = $request->query('search')) $q->where('text', 'like', "%{$search}%");
+        if ($tag = $request->query('tag')) $q->whereJsonContains('tags', $tag);
+
+        $page = $q->latest()->paginate((int) $request->query('per_page', 25));
+
+        return $this->success([
+            'data' => QuestionResource::collection($page->getCollection()),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+            ],
+        ]);
+    }
+
     /** POST /api/v1/question-banks/{uuid}/questions */
     public function addQuestion(QuestionBank $questionBank, StoreQuestionRequest $request): JsonResponse
     {

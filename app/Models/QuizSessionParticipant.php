@@ -17,13 +17,14 @@ class QuizSessionParticipant extends Model
         'total_score', 'current_rank', 'correct_answers', 'incorrect_answers',
         'longest_streak', 'current_streak', 'avg_response_time_ms',
         'socket_id', 'ip_address', 'device_type',
-        'is_connected', 'last_seen_at', 'joined_at', 'left_at',
+        'is_connected', 'is_late_join', 'last_seen_at', 'joined_at', 'left_at',
     ];
 
     protected function casts(): array
     {
         return [
             'is_connected' => 'boolean',
+            'is_late_join' => 'boolean',
             'last_seen_at' => 'datetime',
             'joined_at' => 'datetime',
             'left_at' => 'datetime',

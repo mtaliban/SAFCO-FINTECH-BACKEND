@@ -14,6 +14,7 @@ use App\Listeners\User\SendOtpNotification;
 use App\Listeners\User\SendPasswordResetLink;
 use App\Listeners\User\SendWelcomeNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use SocialiteProviders\Manager\SocialiteWasCalled;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -37,6 +38,11 @@ class EventServiceProvider extends ServiceProvider
         LoginFailed::class => [
             DetectSuspiciousLogin::class,
             LogEventToCsv::class,
+        ],
+
+        // Register the Microsoft Azure driver with Laravel Socialite
+        SocialiteWasCalled::class => [
+            'SocialiteProviders\\Azure\\AzureExtendSocialite@handle',
         ],
     ];
 

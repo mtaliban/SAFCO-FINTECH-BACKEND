@@ -25,6 +25,9 @@ RUN apk add --no-cache \
         g++ \
         make \
         linux-headers \
+        mysql-client \
+        gzip \
+        tar \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         pdo_mysql \

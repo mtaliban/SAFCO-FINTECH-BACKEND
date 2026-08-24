@@ -13,10 +13,11 @@ class QuizAttempt extends Model
     use HasFactory;
 
     protected $fillable = [
-        'uuid', 'quiz_id', 'user_id', 'attempt_number', 'status',
+        'uuid', 'quiz_id', 'user_id', 'attempt_number', 'status', 'exam_type',
         'total_questions', 'correct_answers', 'incorrect_answers', 'unanswered',
         'total_score', 'max_possible_score', 'percentage', 'passed',
-        'started_at', 'completed_at', 'duration_seconds', 'question_snapshot',
+        'started_at', 'expires_at', 'completed_at', 'duration_seconds',
+        'question_snapshot', 'violations', 'auto_submit_reason',
     ];
 
     protected function casts(): array
@@ -25,9 +26,24 @@ class QuizAttempt extends Model
             'passed' => 'boolean',
             'percentage' => 'decimal:2',
             'started_at' => 'datetime',
+            'expires_at' => 'datetime',
             'completed_at' => 'datetime',
             'question_snapshot' => 'array',
+            'violations' => 'array',
         ];
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === 'in_progress'
+            && ($this->expires_at === null || $this->expires_at->isFuture());
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->status === 'in_progress'
+            && $this->expires_at !== null
+            && $this->expires_at->isPast();
     }
 
     protected static function booted(): void

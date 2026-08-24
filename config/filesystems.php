@@ -60,6 +60,22 @@ return [
             'report' => false,
         ],
 
+        // SRS Non-Functional Requirements — backup storage.
+        // Local by default; swap to 's3' via BACKUP_DISK=s3 in .env when
+        // AWS/DO Spaces creds are provided.
+        'backups' => [
+            'driver' => env('BACKUP_DISK', 'local') === 's3' ? 's3' : 'local',
+            'root' => storage_path('app/private'),
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_BACKUP_BUCKET', env('AWS_BUCKET')),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

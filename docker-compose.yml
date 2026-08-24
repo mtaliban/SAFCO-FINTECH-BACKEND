@@ -76,8 +76,9 @@ services:
     container_name: safco-reverb
     restart: unless-stopped
     command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    # Host port 8091 avoids collision with other stacks that use 8080
     ports:
-      - "8080:8080"
+      - "8091:8080"
     depends_on:
       - app
       - redis

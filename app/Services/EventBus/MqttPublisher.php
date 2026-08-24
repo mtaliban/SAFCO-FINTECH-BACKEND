@@ -94,9 +94,14 @@ class MqttPublisher implements EventPublisher
             $this->config['client_id'] . '_' . uniqid()
         );
 
+        // Mosquitto (anonymous broker) rejects empty-string username as
+        // "may not consist of white space only" — pass null instead.
+        $username = trim((string) ($this->config['username'] ?? ''));
+        $password = (string) ($this->config['password'] ?? '');
+
         $settings = (new ConnectionSettings())
-            ->setUsername($this->config['username'] ?? null)
-            ->setPassword($this->config['password'] ?? null)
+            ->setUsername($username !== '' ? $username : null)
+            ->setPassword($password !== '' ? $password : null)
             ->setKeepAliveInterval((int) ($this->config['keep_alive'] ?? 60))
             ->setUseTls((bool) ($this->config['tls_enabled'] ?? false));
 

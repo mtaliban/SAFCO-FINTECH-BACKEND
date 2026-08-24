@@ -18,17 +18,31 @@ use Laravel\Socialite\Facades\Socialite;
  */
 class SocialAuthService
 {
+    /**
+     * We accept human-friendly names in the URL (google, microsoft) but
+     * translate 'microsoft' to Socialite's actual driver key 'azure'
+     * (provided by SocialiteProviders/Microsoft-Azure).
+     */
     protected array $allowedProviders = ['google', 'microsoft'];
+
+    protected const DRIVER_ALIAS = [
+        'microsoft' => 'azure',
+    ];
 
     public function __construct(protected EventDispatcher $events)
     {
+    }
+
+    protected function driver(string $provider): string
+    {
+        return self::DRIVER_ALIAS[$provider] ?? $provider;
     }
 
     public function redirectUrl(string $provider): string
     {
         $this->assertAllowed($provider);
 
-        return Socialite::driver($provider)
+        return Socialite::driver($this->driver($provider))
             ->stateless()
             ->redirect()
             ->getTargetUrl();
@@ -42,7 +56,7 @@ class SocialAuthService
     {
         $this->assertAllowed($provider);
 
-        $socialUser = Socialite::driver($provider)->stateless()->user();
+        $socialUser = Socialite::driver($this->driver($provider))->stateless()->user();
 
         $user = $this->findOrCreateUser($provider, $socialUser);
 
@@ -52,10 +66,11 @@ class SocialAuthService
             aggregateId: $user->id
         );
 
+        $expiryMinutes = (int) (config('sanctum.expiration') ?: 1440);
         $token = $user->createToken(
             $deviceName,
             ['*'],
-            now()->addMinutes((int) config('sanctum.expiration', 1440))
+            now()->addMinutes($expiryMinutes)
         );
 
         return [

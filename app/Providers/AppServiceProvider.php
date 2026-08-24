@@ -11,7 +11,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(
+            \App\Services\Payment\PaymentProviderRegistry::class,
+            fn () => new \App\Services\Payment\PaymentProviderRegistry()
+        );
     }
 
     public function boot(): void
@@ -26,6 +29,11 @@ class AppServiceProvider extends ServiceProvider
 
         // Tightest limit for OTP requests (3 req/min per IP)
         RateLimiter::for('otp', fn (Request $r) => Limit::perMinute((int) env('RATE_LIMIT_OTP', 3))
+            ->by($r->ip()));
+
+        // Live-play poll endpoint: frontend polls every ~1.2s (≈50/min).
+        // Give players plenty of headroom (240/min = 4/sec) per participant/IP.
+        RateLimiter::for('play', fn (Request $r) => Limit::perMinute((int) env('RATE_LIMIT_PLAY', 240))
             ->by($r->ip()));
     }
 }

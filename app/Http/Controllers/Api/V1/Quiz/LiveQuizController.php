@@ -81,6 +81,45 @@ class LiveQuizController extends Controller
         );
     }
 
+    /** GET /api/v1/sessions/{uuid}/participants — full lobby list (host view) */
+    public function participants(QuizSession $session): JsonResponse
+    {
+        $rows = $session->participants()
+            ->latest('joined_at')
+            ->get()
+            ->map(fn ($p) => [
+                'id' => $p->uuid,
+                'nickname' => $p->nickname,
+                'avatar_url' => $p->avatar_url,
+                'total_score' => $p->total_score,
+                'correct_answers' => $p->correct_answers,
+                'is_late_join' => (bool) $p->is_late_join,
+                'is_connected' => (bool) $p->is_connected,
+                'joined_at' => $p->joined_at?->toIso8601String(),
+            ]);
+
+        return $this->success([
+            'count' => $rows->count(),
+            'participants' => $rows,
+        ]);
+    }
+
+    /** GET /api/v1/sessions/{uuid}/answer-count — live "X/Y answered" during question_active */
+    public function answerCount(QuizSession $session): JsonResponse
+    {
+        $answered = 0;
+        if ($session->current_question_id) {
+            $answered = \App\Models\QuizSessionAnswer::where('session_id', $session->id)
+                ->where('question_id', $session->current_question_id)
+                ->count();
+        }
+        return $this->success([
+            'answered' => $answered,
+            'total' => (int) $session->participant_count,
+            'question_index' => (int) $session->current_question_index,
+        ]);
+    }
+
     /* ---------------- STUDENT ---------------- */
 
     /**
@@ -119,6 +158,40 @@ class LiveQuizController extends Controller
             'current_question_index' => $session->current_question_index,
             'current_question_ends_at' => $session->current_question_ends_at?->toIso8601String(),
             'realtime_topic' => $session->realtimeTopic(),
+            // Only surfaced after the host completes the session.
+            'final_leaderboard' => $session->status === 'completed'
+                ? ($session->final_leaderboard ?? [])
+                : null,
+        ]);
+    }
+
+    /** GET /api/v1/play/session/{pin}/current-question
+     *  Frontend polls this to render the active question on the player screen.
+     *  Answers are stripped so participants can't see the correct choice.
+     */
+    public function playCurrentQuestion(string $pin): JsonResponse
+    {
+        $session = QuizSession::where('pin', $pin)->firstOrFail();
+
+        if (!$session->current_question_id || $session->status !== 'question_active') {
+            return $this->success(null);
+        }
+
+        $q = $session->currentQuestion;
+        if (!$q) return $this->success(null);
+
+        return $this->success([
+            'question_id' => $q->uuid,
+            'question_number' => (int) $session->current_question_index + 1,
+            'total_questions' => (int) $session->total_questions,
+            'type' => $q->type,
+            'text' => $q->text,
+            'image_url' => $q->image_url,
+            'options' => collect($q->options ?? [])
+                ->map(fn ($o) => ['id' => $o['id'] ?? null, 'label' => $o['label'] ?? '', 'color' => $o['color'] ?? null, 'shape' => $o['shape'] ?? null])
+                ->values(),
+            'time_limit_seconds' => (int) $q->time_limit_seconds,
+            'ends_at' => $session->current_question_ends_at?->toIso8601String(),
         ]);
     }
 

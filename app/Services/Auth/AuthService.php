@@ -142,10 +142,11 @@ class AuthService
         );
 
         $abilities = $user->getPermissionNames()->toArray();
+        $expiryMinutes = (int) (config('sanctum.expiration') ?: 1440);
         $token = $user->createToken(
             $deviceName,
             $abilities ?: ['*'],
-            now()->addMinutes((int) config('sanctum.expiration', 1440))
+            now()->addMinutes($expiryMinutes)
         );
 
         return [
