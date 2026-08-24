@@ -63,6 +63,13 @@ sleep 5
 echo "==> Running database migrations ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan migrate --force
 
+echo "==> Seeding roles + permissions (idempotent) ..."
+$DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=RoleAndPermissionSeeder --force
+
+echo "==> Ensuring storage permissions ..."
+$DOCKER compose -f "${COMPOSE_FILE}" exec -T app chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+$DOCKER compose -f "${COMPOSE_FILE}" exec -T app chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache
+
 echo "==> Rebuilding Laravel caches ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan config:cache
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan route:cache
