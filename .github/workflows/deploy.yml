@@ -11,17 +11,15 @@
 name: CD
 
 on:
-  # Trigger only after CI workflow succeeds on main.
   workflow_run:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
-  # Manual re-deploy button.
   workflow_dispatch:
 
 env:
   DOCKER_IMAGE: mtalibani/safco-backend
-  DEFAULT_DEPLOY_PATH: /home/ubuntu/safco-backend
+  DEPLOY_PATH: /home/ubuntu/safco-backend
 
 jobs:
   ##########################################
@@ -30,7 +28,6 @@ jobs:
   build-and-push:
     name: Build & push image
     runs-on: ubuntu-latest
-    # Skip if CI workflow did NOT succeed (workflow_run always fires).
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
@@ -39,7 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # workflow_run defaults to main branch's ref; be explicit for clarity.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Compute short SHA
@@ -86,29 +82,37 @@ jobs:
           platforms: linux/amd64
 
   ##########################################
-  # 2. Deploy to EC2
+  # 2. Deploy to EC2 (native ssh via ssh-agent)
   ##########################################
   deploy-ec2:
     name: Deploy to EC2
     runs-on: ubuntu-latest
     needs: build-and-push
     env:
-      IMAGE_SHA: sha-${{ needs.build-and-push.outputs.short_sha }}
+      IMAGE_TAG: sha-${{ needs.build-and-push.outputs.short_sha }}
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
-      - name: Ensure Docker + compose plugin installed on EC2
-        uses: appleboy/ssh-action@v1.2.0
+      # Load the SSH key into an ssh-agent. Handles multi-line keys,
+      # missing trailing newlines, encrypted keys — all the corner cases
+      # that appleboy/ssh-action stumbled on.
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          envs: DEFAULT_DEPLOY_PATH
-          script_stop: true
-          script: |
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Add EC2 host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ensure Docker installed on EC2
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" '
             set -e
             if ! command -v docker >/dev/null 2>&1; then
               echo "==> Installing Docker Engine ..."
@@ -123,37 +127,21 @@ jobs:
               sudo usermod -aG docker "$USER"
               sudo systemctl enable --now docker
             fi
-            DEPLOY_PATH="${EC2_DEPLOY_PATH:-$DEFAULT_DEPLOY_PATH}"
-            mkdir -p "$DEPLOY_PATH"
+            mkdir -p '"$DEPLOY_PATH"'
+          '
 
       - name: Docker login on EC2
-        uses: appleboy/ssh-action@v1.2.0
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          envs: DOCKER_USERNAME,DOCKER_TOKEN
-          script_stop: true
-          script: |
-            echo "$DOCKER_TOKEN" | sudo docker login -u "$DOCKER_USERNAME" --password-stdin
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" "echo '$DOCKER_TOKEN' | sudo docker login -u '$DOCKER_USERNAME' --password-stdin"
 
       - name: Copy compose file + deploy script to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          source: "docker-compose.prod.yml,deploy.sh"
-          target: ${{ secrets.EC2_DEPLOY_PATH != '' && secrets.EC2_DEPLOY_PATH || '/home/ubuntu/safco-backend' }}
-          overwrite: true
+        run: |
+          scp docker-compose.prod.yml deploy.sh "$EC2_USER@$EC2_HOST:$DEPLOY_PATH/"
 
       - name: Generate .env on EC2 from GitHub secrets
-        uses: appleboy/ssh-action@v1.2.0
         env:
           APP_KEY: ${{ secrets.APP_KEY }}
           APP_URL: ${{ secrets.APP_URL }}
@@ -171,140 +159,116 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          envs: >-
-            APP_KEY,APP_URL,FRONTEND_URL,DB_PASSWORD,DB_ROOT_PASSWORD,MAIL_PASSWORD,
-            GEMINI_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,
-            REVERB_APP_KEY,REVERB_APP_SECRET,CERTIFICATE_SIGNING_KEY,
-            AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,S3_BUCKET_NAME
-          script_stop: true
-          script: |
-            DEPLOY_PATH="${EC2_DEPLOY_PATH:-/home/ubuntu/safco-backend}"
-            cd "$DEPLOY_PATH"
-            umask 077
-            cat > .env.new <<ENVEOF
-            # Generated by GitHub Actions on every deploy — do NOT edit by hand.
-            APP_NAME="SAFCO FINTECH LMS"
-            APP_ENV=production
-            APP_KEY=${APP_KEY}
-            APP_DEBUG=false
-            APP_TIMEZONE=Africa/Dar_es_Salaam
-            APP_URL=${APP_URL}
-            APP_LOCALE=en
-            APP_FALLBACK_LOCALE=en
+        run: |
+          # Build .env locally, then transfer via scp. Safer than heredoc-over-ssh
+          # because we avoid double-escaping.
+          cat > env.production <<ENVEOF
+          # Generated by GitHub Actions on every deploy — do NOT edit by hand.
+          APP_NAME="SAFCO FINTECH LMS"
+          APP_ENV=production
+          APP_KEY=${APP_KEY}
+          APP_DEBUG=false
+          APP_TIMEZONE=Africa/Dar_es_Salaam
+          APP_URL=${APP_URL}
+          APP_LOCALE=en
+          APP_FALLBACK_LOCALE=en
 
-            API_VERSION=v1
-            API_PREFIX=api
-            FRONTEND_URL=${FRONTEND_URL}
+          API_VERSION=v1
+          API_PREFIX=api
+          FRONTEND_URL=${FRONTEND_URL}
 
-            LOG_CHANNEL=stack
-            LOG_LEVEL=warning
-            LOG_STACK=daily
+          LOG_CHANNEL=stack
+          LOG_LEVEL=warning
+          LOG_STACK=daily
 
-            DB_CONNECTION=mysql
-            DB_HOST=mysql
-            DB_PORT=3306
-            DB_DATABASE=safco_lms
-            DB_USERNAME=safco_user
-            DB_PASSWORD=${DB_PASSWORD}
-            DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+          DB_CONNECTION=mysql
+          DB_HOST=mysql
+          DB_PORT=3306
+          DB_DATABASE=safco_lms
+          DB_USERNAME=safco_user
+          DB_PASSWORD=${DB_PASSWORD}
+          DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
 
-            CACHE_STORE=redis
-            SESSION_DRIVER=redis
-            SESSION_LIFETIME=120
-            REDIS_HOST=redis
-            REDIS_PORT=6379
-            REDIS_PASSWORD=null
-            REDIS_CLIENT=predis
+          CACHE_STORE=redis
+          SESSION_DRIVER=redis
+          SESSION_LIFETIME=120
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=null
+          REDIS_CLIENT=predis
 
-            QUEUE_CONNECTION=redis
-            HORIZON_PREFIX=safco_horizon
+          QUEUE_CONNECTION=redis
+          HORIZON_PREFIX=safco_horizon
 
-            BROADCAST_CONNECTION=reverb
-            REVERB_APP_ID=safco-lms
-            REVERB_APP_KEY=${REVERB_APP_KEY}
-            REVERB_APP_SECRET=${REVERB_APP_SECRET}
-            REVERB_HOST=reverb
-            REVERB_PORT=8080
-            REVERB_SCHEME=http
-            REVERB_SERVER_HOST=0.0.0.0
+          BROADCAST_CONNECTION=reverb
+          REVERB_APP_ID=safco-lms
+          REVERB_APP_KEY=${REVERB_APP_KEY}
+          REVERB_APP_SECRET=${REVERB_APP_SECRET}
+          REVERB_HOST=reverb
+          REVERB_PORT=8080
+          REVERB_SCHEME=http
+          REVERB_SERVER_HOST=0.0.0.0
 
-            MAIL_MAILER=smtp
-            MAIL_HOST=smtp.gmail.com
-            MAIL_PORT=587
-            MAIL_USERNAME=Hamisiselemani039@gmail.com
-            MAIL_PASSWORD=${MAIL_PASSWORD}
-            MAIL_ENCRYPTION=tls
-            MAIL_FROM_ADDRESS=Hamisiselemani039@gmail.com
-            MAIL_FROM_NAME="SAFCO FINTECH LMS"
+          MAIL_MAILER=smtp
+          MAIL_HOST=smtp.gmail.com
+          MAIL_PORT=587
+          MAIL_USERNAME=Hamisiselemani039@gmail.com
+          MAIL_PASSWORD=${MAIL_PASSWORD}
+          MAIL_ENCRYPTION=tls
+          MAIL_FROM_ADDRESS=Hamisiselemani039@gmail.com
+          MAIL_FROM_NAME="SAFCO FINTECH LMS"
 
-            FILESYSTEM_DISK=s3
-            AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            AWS_DEFAULT_REGION=${AWS_REGION}
-            AWS_BUCKET=${S3_BUCKET_NAME}
-            AWS_URL=
-            AWS_ENDPOINT=
-            AWS_USE_PATH_STYLE_ENDPOINT=false
-            BACKUP_DISK=s3
-            AWS_BACKUP_BUCKET=${S3_BUCKET_NAME}
+          FILESYSTEM_DISK=s3
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_DEFAULT_REGION=${AWS_REGION}
+          AWS_BUCKET=${S3_BUCKET_NAME}
+          AWS_URL=
+          AWS_ENDPOINT=
+          AWS_USE_PATH_STYLE_ENDPOINT=false
+          BACKUP_DISK=s3
+          AWS_BACKUP_BUCKET=${S3_BUCKET_NAME}
 
-            AI_TUTOR_PROVIDER=gemini
-            GEMINI_API_KEY=${GEMINI_API_KEY}
-            GEMINI_MODEL=gemini-3.6-flash
-            GEMINI_TIMEOUT=30
+          AI_TUTOR_PROVIDER=gemini
+          GEMINI_API_KEY=${GEMINI_API_KEY}
+          GEMINI_MODEL=gemini-3.6-flash
+          GEMINI_TIMEOUT=30
 
-            AI_QUESTION_PROVIDER=groq
-            GROQ_API_KEY=${GROQ_API_KEY}
-            GROQ_MODEL=groq/compound
+          AI_QUESTION_PROVIDER=groq
+          GROQ_API_KEY=${GROQ_API_KEY}
+          GROQ_MODEL=groq/compound
 
-            OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-            OPENROUTER_MODEL=openrouter/free
+          OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+          OPENROUTER_MODEL=openrouter/free
 
-            SANCTUM_TOKEN_EXPIRATION=86400
-            SESSION_SECURE_COOKIE=true
-            SESSION_ENCRYPT=true
-            SESSION_SAME_SITE=lax
-            CORS_ALLOWED_ORIGINS=${FRONTEND_URL}
-            CERTIFICATE_SIGNING_KEY=${CERTIFICATE_SIGNING_KEY}
+          SANCTUM_TOKEN_EXPIRATION=86400
+          SESSION_SECURE_COOKIE=true
+          SESSION_ENCRYPT=true
+          SESSION_SAME_SITE=lax
+          CORS_ALLOWED_ORIGINS=${FRONTEND_URL}
+          CERTIFICATE_SIGNING_KEY=${CERTIFICATE_SIGNING_KEY}
 
-            RATE_LIMIT_API=60
-            RATE_LIMIT_AUTH=5
-            RATE_LIMIT_OTP=3
+          RATE_LIMIT_API=60
+          RATE_LIMIT_AUTH=5
+          RATE_LIMIT_OTP=3
 
-            ACTIVITY_LOG_ENABLED=true
-            ENVEOF
-            mv .env.new .env
-            chmod 600 .env
+          ACTIVITY_LOG_ENABLED=true
+          ENVEOF
+
+          scp env.production "$EC2_USER@$EC2_HOST:$DEPLOY_PATH/.env"
+          ssh "$EC2_USER@$EC2_HOST" "chmod 600 $DEPLOY_PATH/.env"
+          rm -f env.production
 
       - name: Run deploy script on EC2
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          IMAGE_TAG: ${{ env.IMAGE_SHA }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          envs: IMAGE_TAG
-          script_stop: true
-          command_timeout: "10m"
-          script: |
-            DEPLOY_PATH="${EC2_DEPLOY_PATH:-/home/ubuntu/safco-backend}"
-            cd "$DEPLOY_PATH"
-            chmod +x deploy.sh
-            sudo ./deploy.sh mtalibani/safco-backend "$IMAGE_TAG"
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" "cd $DEPLOY_PATH && chmod +x deploy.sh && sudo ./deploy.sh $DOCKER_IMAGE $IMAGE_TAG"
 
       - name: Smoke-test health endpoint
         run: |
           echo "Waiting 20s for the app to warm up..."
           sleep 20
           for attempt in 1 2 3 4 5; do
-            code=$(curl -sfk -o /dev/null -w "%{http_code}" "http://${{ secrets.EC2_HOST }}:8000/api/v1/health" || echo "000")
+            code=$(curl -sfk -o /dev/null -w "%{http_code}" "http://$EC2_HOST:8000/api/v1/health" || echo "000")
             if [ "$code" = "200" ]; then
               echo "OK: /api/v1/health returned 200 on attempt $attempt."
               exit 0
