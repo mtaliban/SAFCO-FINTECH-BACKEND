@@ -97,17 +97,16 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
-      # Load the SSH key into an ssh-agent. Handles multi-line keys,
-      # missing trailing newlines, encrypted keys — all the corner cases
-      # that appleboy/ssh-action stumbled on.
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-
-      - name: Add EC2 host to known_hosts
+      # Decode base64-encoded SSH key to a file (bulletproof against
+      # copy-paste line-ending issues). Uses ssh-agent so downstream
+      # ssh/scp commands don't need `-i` flag.
+      - name: Setup SSH key
+        env:
+          KEY_B64: ${{ secrets.EC2_SSH_KEY_B64 }}
         run: |
           mkdir -p ~/.ssh
+          echo "$KEY_B64" | base64 -d > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Ensure Docker installed on EC2
