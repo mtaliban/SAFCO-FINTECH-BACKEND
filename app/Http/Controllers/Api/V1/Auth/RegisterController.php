@@ -28,15 +28,9 @@ class RegisterController extends Controller
     {
         $user = $this->auth->register($request->validated());
 
-        $this->otp->generate(
-            identifier: $user->email,
-            type: 'email_verify',
-            channel: 'email',
-            userId: $user->id,
-            ipAddress: $request->ip(),
-        );
+        $expiryMinutes = (int) (config('sanctum.expiration') ?: 1440);
+        $token = $user->createToken('web', ['*'], now()->addMinutes($expiryMinutes));
 
-        // SRS Module 15 — send welcome email + in-app greeting via dispatcher.
         $this->notifications->dispatch($user, 'account.welcome', [
             'action_url' => config('app.url') . '/dashboard',
             'action_label' => 'Ingia dashboard',
@@ -44,11 +38,12 @@ class RegisterController extends Controller
 
         return $this->success(
             data: [
-                'user' => new UserResource($user),
-                'requires_verification' => true,
-                'verification_channel' => 'email',
+                'user'  => new UserResource($user),
+                'token' => $token->plainTextToken,
+                'token_type' => 'Bearer',
+                'requires_verification' => false,
             ],
-            message: 'Registration successful. Please verify your email.',
+            message: 'Registration successful.',
             status: 201
         );
     }
