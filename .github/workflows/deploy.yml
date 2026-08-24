@@ -97,16 +97,31 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
-      # Decode base64-encoded SSH key to a file (bulletproof against
-      # copy-paste line-ending issues). Uses ssh-agent so downstream
-      # ssh/scp commands don't need `-i` flag.
+      # Decode base64-encoded SSH key to a file, tolerant of any whitespace
+      # that GitHub Secrets or copy-paste might have introduced.
       - name: Setup SSH key
         env:
           KEY_B64: ${{ secrets.EC2_SSH_KEY_B64 }}
         run: |
           mkdir -p ~/.ssh
-          echo "$KEY_B64" | base64 -d > ~/.ssh/id_rsa
+          # Strip ALL whitespace (spaces, tabs, newlines, CR) before decoding.
+          printf '%s' "$KEY_B64" | tr -d '[:space:]' | base64 -d > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+
+          # Diagnostics — proves the key is valid before we try to use it.
+          size=$(wc -c < ~/.ssh/id_rsa)
+          echo "Decoded key size: ${size} bytes"
+          echo "First line: $(head -1 ~/.ssh/id_rsa)"
+          echo "Last line:  $(tail -1 ~/.ssh/id_rsa)"
+
+          if ! ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null 2>&1; then
+            echo "!! Decoded key is NOT a valid OpenSSH private key." >&2
+            echo "   Check that EC2_SSH_KEY_B64 secret contains valid base64" >&2
+            echo "   of the .pem file (produced by: base64 -w 0 key.pem)." >&2
+            exit 1
+          fi
+          echo "Key is valid."
+
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Ensure Docker installed on EC2
