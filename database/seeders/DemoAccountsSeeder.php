@@ -56,7 +56,7 @@ class DemoAccountsSeeder extends Seeder
         $student->syncRoles(['student']);
 
         // Corporate Client — Bank of Tanzania rep (per SRS)
-        $corporate = User::firstOrCreate(
+        $corporate = User::updateOrCreate(
             ['email' => 'admin@bot.go.tz'],
             [
                 'password' => Hash::make('Corporate@2026!'),
