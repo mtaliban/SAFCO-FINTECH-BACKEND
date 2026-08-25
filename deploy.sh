@@ -72,6 +72,9 @@ $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan migrate --force
 echo "==> Seeding roles + permissions (idempotent) ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=RoleAndPermissionSeeder --force
 
+echo "==> Seeding organizations (idempotent) ..."
+$DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=OrganizationSeeder --force
+
 echo "==> Seeding admin + default trainer accounts (idempotent) ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=AdminUserSeeder --force
 
