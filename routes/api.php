@@ -300,14 +300,14 @@ Route::prefix('v1')->group(function () {
     /* ============================================================
      * TRAINER-ONLY: my resources (SRS 3.2)
      * ============================================================ */
-    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|system_admin'])->prefix('trainer')->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|facilitator|system_admin'])->prefix('trainer')->group(function () {
         Route::get('my-quizzes', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'index'])->name('trainer.my-quizzes');
         Route::get('my-sessions', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'sessions'])->name('trainer.my-sessions');
         Route::get('dashboard', [\App\Http\Controllers\Api\V1\Dashboard\TrainerDashboardController::class, 'index'])
-            ->middleware('throttle:60,1')->name('trainer.dashboard');
+            ->middleware(['throttle:60,1', 'role:trainer|system_admin'])->name('trainer.dashboard');
         Route::get('courses/{courseUuid}/report', [\App\Http\Controllers\Api\V1\Dashboard\TrainerDashboardController::class, 'courseReport'])
             ->where('courseUuid', '[0-9a-f-]{36}')
-            ->middleware('throttle:30,1')->name('trainer.course.report');
+            ->middleware(['throttle:30,1', 'role:trainer|system_admin'])->name('trainer.course.report');
     });
 
     /* ============================================================
