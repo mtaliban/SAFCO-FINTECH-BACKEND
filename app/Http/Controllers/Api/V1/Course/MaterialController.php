@@ -97,8 +97,9 @@ class MaterialController extends Controller
             return $this->error('Package exceeds 50 MB.', 422);
         }
 
-        $path = $file->store("lessons/{$lesson->uuid}/materials", 'public');
-        $url = '/storage/'.$path;
+        $disk = config('filesystems.default', 's3');
+        $path = $file->store("lessons/{$lesson->uuid}/materials", $disk);
+        $url  = Storage::disk($disk)->url($path);
 
         $material = $lesson->materials()->create([
             'type' => $type,
@@ -144,38 +145,57 @@ class MaterialController extends Controller
      */
     public function stream(LessonMaterial $material, Request $request): StreamedResponse|JsonResponse
     {
-        if (!str_starts_with($material->url, '/storage/')) {
+        if ($material->processing_status !== 'ready') {
+            return $this->error('Material still processing.', 425);
+        }
+
+        $url = $material->url;
+
+        // S3 / external URL — redirect; S3 supports Range requests natively so
+        // the browser <video> element can seek without any proxy logic here.
+        if (str_starts_with($url, 'https://') || str_starts_with($url, 'http://')) {
+            // For private S3 buckets generate a short-lived signed URL (15 min).
+            // For public buckets the URL is already usable — redirect is fine either way.
+            try {
+                $disk = config('filesystems.default', 's3');
+                $path = $this->s3PathFromUrl($url);
+                $signed = Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(15));
+                return redirect()->away($signed);
+            } catch (\Throwable) {
+                // Bucket is public or disk doesn't support signed URLs — redirect directly.
+                return redirect()->away($url);
+            }
+        }
+
+        // Legacy local /storage/ files (backward compat during migration)
+        if (!str_starts_with($url, '/storage/')) {
             return $this->error('This material is external — use the URL directly.', 400);
         }
-        if ($material->processing_status !== 'ready') {
-            return $this->error('Material still processing.', 425); // 425 Too Early
-        }
 
-        $path = Storage::disk('public')->path(str_replace('/storage/', '', $material->url));
+        $path = Storage::disk('public')->path(str_replace('/storage/', '', $url));
         if (!file_exists($path)) return $this->error('File missing.', 404);
 
-        $size = filesize($path);
-        $mime = $material->mime_type ?: mime_content_type($path) ?: 'application/octet-stream';
-
-        $start = 0;
-        $end = $size - 1;
+        $size   = filesize($path);
+        $mime   = $material->mime_type ?: mime_content_type($path) ?: 'application/octet-stream';
+        $start  = 0;
+        $end    = $size - 1;
         $status = 200;
         $headers = [
-            'Content-Type' => $mime,
-            'Accept-Ranges' => 'bytes',
-            'Cache-Control' => 'public, max-age=3600',
+            'Content-Type'   => $mime,
+            'Accept-Ranges'  => 'bytes',
+            'Cache-Control'  => 'public, max-age=3600',
             'Content-Length' => (string) $size,
         ];
 
         $range = $request->header('Range');
         if ($range && preg_match('/bytes=(\d*)-(\d*)/', $range, $m)) {
             $start = $m[1] !== '' ? (int) $m[1] : 0;
-            $end = $m[2] !== '' ? (int) $m[2] : $size - 1;
+            $end   = $m[2] !== '' ? (int) $m[2] : $size - 1;
             if ($start > $end || $end >= $size) {
                 return $this->error('Requested range not satisfiable.', 416);
             }
             $status = 206;
-            $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
+            $headers['Content-Range']  = "bytes {$start}-{$end}/{$size}";
             $headers['Content-Length'] = (string) ($end - $start + 1);
         }
 
@@ -187,12 +207,32 @@ class MaterialController extends Controller
             while (!feof($fh) && $bytesToRead > 0 && connection_status() === CONNECTION_NORMAL) {
                 $read = min($chunk, $bytesToRead);
                 echo fread($fh, $read);
-                @ob_flush();
-                @flush();
+                @ob_flush(); @flush();
                 $bytesToRead -= $read;
             }
             fclose($fh);
         }, $status, $headers);
+    }
+
+    /** Extract the S3 object key from a full S3 URL. */
+    private function s3PathFromUrl(string $url): string
+    {
+        $bucket = config('filesystems.disks.s3.bucket', '');
+        $region = config('filesystems.disks.s3.region', '');
+
+        // Standard: https://bucket.s3.region.amazonaws.com/key
+        foreach ([
+            "https://{$bucket}.s3.{$region}.amazonaws.com/",
+            "https://{$bucket}.s3.amazonaws.com/",
+            "https://s3.{$region}.amazonaws.com/{$bucket}/",
+        ] as $prefix) {
+            if (str_starts_with($url, $prefix)) {
+                return urldecode(substr($url, strlen($prefix)));
+            }
+        }
+        // Custom domain / CDN — extract path component
+        $path = parse_url($url, PHP_URL_PATH);
+        return ltrim($path ?? $url, '/');
     }
 
     /** PATCH /api/v1/materials/{material:uuid} */
@@ -213,9 +253,13 @@ class MaterialController extends Controller
     {
         $this->authorizeCourseOwner($material->lesson, $request);
 
-        // Remove file from storage if it was uploaded
-        if (str_starts_with($material->url, '/storage/')) {
-            Storage::disk('public')->delete(str_replace('/storage/', '', $material->url));
+        // Remove file from storage
+        $url = $material->url;
+        if (str_starts_with($url, 'https://') || str_starts_with($url, 'http://')) {
+            $disk = config('filesystems.default', 's3');
+            try { Storage::disk($disk)->delete($this->s3PathFromUrl($url)); } catch (\Throwable) {}
+        } elseif (str_starts_with($url, '/storage/')) {
+            Storage::disk('public')->delete(str_replace('/storage/', '', $url));
         }
         $material->delete();
         return $this->success(null, 'Material deleted');
@@ -313,8 +357,9 @@ class MaterialController extends Controller
             'page_count' => $m->page_count,
             'width' => $m->width,
             'height' => $m->height,
-            // Streaming endpoint (only for storage-backed materials)
-            'stream_url' => str_starts_with($m->url, '/storage/') ? "/api/v1/materials/{$m->uuid}/stream" : null,
+            // Streaming endpoint — used for S3 files and legacy local files
+            'stream_url' => (!str_starts_with($m->url, 'https://www.youtube') && !str_starts_with($m->url, 'https://player.vimeo'))
+                ? "/api/v1/materials/{$m->uuid}/stream" : null,
         ];
     }
 }

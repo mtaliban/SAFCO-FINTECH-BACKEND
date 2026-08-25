@@ -42,35 +42,38 @@ class ProcessMaterialUpload implements ShouldQueue
         try {
             $this->update($material, $mqtt, 'processing', 25, 'Starting');
 
-            // External URL (YouTube/Vimeo/HTML5) — nothing to process locally
-            if (!str_starts_with($material->url, '/storage/')) {
+            // YouTube / Vimeo / HTML5 embed — nothing to process locally
+            if (in_array($material->type, ['video_youtube', 'video_vimeo', 'interactive_html5'], true)) {
                 $this->update($material, $mqtt, 'ready', 100, 'External URL — no processing needed');
                 return;
             }
 
-            $relativePath = str_replace('/storage/', '', $material->url);
-            $fullPath = Storage::disk('public')->path($relativePath);
+            // Resolve local file path — download from S3 to a temp file if needed
+            $tmpFile = null;
+            $fullPath = $this->resolveLocalPath($material->url, $tmpFile);
 
-            if (!file_exists($fullPath)) {
-                throw new \RuntimeException("File not found at {$fullPath}");
-            }
-
-            // Stage 2: extract metadata
-            $meta = $this->extractMetadata($material, $fullPath);
-            $material->fill($meta);
-            $material->save();
-            $this->update($material, $mqtt, 'processing', 50, 'Metadata extracted', $meta);
-
-            // Stage 3: generate thumbnail
-            $thumbnail = $this->generateThumbnail($material, $fullPath);
-            if ($thumbnail) {
-                $material->thumbnail_url = $thumbnail;
+            try {
+                // Stage 2: extract metadata
+                $meta = $this->extractMetadata($material, $fullPath);
+                $material->fill($meta);
                 $material->save();
-            }
-            $this->update($material, $mqtt, 'processing', 75, 'Thumbnail generated', ['thumbnail_url' => $thumbnail]);
+                $this->update($material, $mqtt, 'processing', 50, 'Metadata extracted', $meta);
 
-            // Stage 4: done
-            $this->update($material, $mqtt, 'ready', 100, 'Ready');
+                // Stage 3: generate thumbnail
+                $thumbnail = $this->generateThumbnail($material, $fullPath);
+                if ($thumbnail) {
+                    $material->thumbnail_url = $thumbnail;
+                    $material->save();
+                }
+                $this->update($material, $mqtt, 'processing', 75, 'Thumbnail generated', ['thumbnail_url' => $thumbnail]);
+
+                // Stage 4: done
+                $this->update($material, $mqtt, 'ready', 100, 'Ready');
+            } finally {
+                if ($tmpFile && file_exists($tmpFile)) {
+                    @unlink($tmpFile);
+                }
+            }
 
             Log::info('Material processing complete', [
                 'material_uuid' => $material->uuid,
@@ -116,6 +119,50 @@ class ProcessMaterialUpload implements ShouldQueue
             'error' => $material->processing_error,
             'ts' => now()->toIso8601String(),
         ], $extra));
+    }
+
+    /**
+     * Returns a local file path for the material.
+     * For S3 / remote URLs: downloads to a temp file (caller must delete).
+     * For legacy /storage/ paths: resolves the local path directly.
+     */
+    private function resolveLocalPath(string $url, ?string &$tmpFile): string
+    {
+        if (str_starts_with($url, '/storage/')) {
+            $path = Storage::disk('public')->path(str_replace('/storage/', '', $url));
+            if (!file_exists($path)) {
+                throw new \RuntimeException("File not found at {$path}");
+            }
+            return $path;
+        }
+
+        // S3 or other remote URL — download to temp
+        $disk = config('filesystems.default', 's3');
+        $s3Path = $this->s3PathFromUrl($url);
+        $contents = Storage::disk($disk)->get($s3Path);
+        if ($contents === null || $contents === false) {
+            throw new \RuntimeException("Could not download file from storage: {$url}");
+        }
+        $ext = pathinfo($s3Path, PATHINFO_EXTENSION);
+        $tmpFile = tempnam(sys_get_temp_dir(), 'safco_') . ($ext ? ".{$ext}" : '');
+        file_put_contents($tmpFile, $contents);
+        return $tmpFile;
+    }
+
+    private function s3PathFromUrl(string $url): string
+    {
+        $bucket = config('filesystems.disks.s3.bucket', '');
+        $region = config('filesystems.disks.s3.region', '');
+        foreach ([
+            "https://{$bucket}.s3.{$region}.amazonaws.com/",
+            "https://{$bucket}.s3.amazonaws.com/",
+            "https://s3.{$region}.amazonaws.com/{$bucket}/",
+        ] as $prefix) {
+            if (str_starts_with($url, $prefix)) {
+                return urldecode(substr($url, strlen($prefix)));
+            }
+        }
+        return ltrim(parse_url($url, PHP_URL_PATH) ?? $url, '/');
     }
 
     /**
@@ -229,12 +276,13 @@ class ProcessMaterialUpload implements ShouldQueue
             $img->setImageFormat('jpg');
             $img->thumbnailImage(400, 0);
             $img->setImageCompressionQuality(80);
-
-            $relDir = "lessons/{$material->lesson->uuid}/materials/{$material->uuid}";
-            $file = "{$relDir}/thumbnail.jpg";
-            Storage::disk('public')->put($file, (string) $img);
+            $jpgData = (string) $img;
             $img->clear();
-            return '/storage/'.$file;
+
+            $disk = config('filesystems.default', 's3');
+            $storagePath = "lessons/{$material->lesson->uuid}/materials/{$material->uuid}/thumbnail.jpg";
+            Storage::disk($disk)->put($storagePath, $jpgData, 'public');
+            return Storage::disk($disk)->url($storagePath);
         } catch (\Throwable $e) {
             Log::debug('PDF thumbnail generation failed', ['error' => $e->getMessage()]);
             return null;

@@ -176,14 +176,22 @@ class CourseController extends Controller
             'thumbnail' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:4096'],
         ]);
 
-        // Delete old file if present
-        if ($course->thumbnail_url && str_starts_with($course->thumbnail_url, '/storage/')) {
-            $oldPath = str_replace('/storage/', '', $course->thumbnail_url);
-            Storage::disk('public')->delete($oldPath);
+        $disk = config('filesystems.default', 's3');
+
+        // Delete old file
+        $old = $course->thumbnail_url;
+        if ($old) {
+            try {
+                if (str_starts_with($old, 'https://') || str_starts_with($old, 'http://')) {
+                    Storage::disk($disk)->delete(ltrim(parse_url($old, PHP_URL_PATH) ?? '', '/'));
+                } elseif (str_starts_with($old, '/storage/')) {
+                    Storage::disk('public')->delete(str_replace('/storage/', '', $old));
+                }
+            } catch (\Throwable) {}
         }
 
-        $path = $request->file('thumbnail')->store("courses/{$course->uuid}/thumbnails", 'public');
-        $url = '/storage/'.$path;
+        $path = $request->file('thumbnail')->store("courses/{$course->uuid}/thumbnails", $disk);
+        $url  = Storage::disk($disk)->url($path);
         $course->update(['thumbnail_url' => $url]);
 
         return $this->success(['thumbnail_url' => $url], 'Thumbnail uploaded');
