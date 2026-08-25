@@ -40,6 +40,12 @@ done
 # Export image reference so docker-compose picks up the right tag.
 export DOCKER_IMAGE IMAGE_TAG
 
+# Free disk space before pulling — remove dangling images + old tagged images
+# that are no longer running. Keeps the disk from filling up on small instances.
+echo "==> Pre-deploy cleanup (free disk space) ..."
+$DOCKER image prune -f
+$DOCKER images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep "${DOCKER_IMAGE}" | grep -v "${IMAGE_TAG}" | grep -v "latest" | awk '{print $2}' | xargs -r $DOCKER rmi -f 2>/dev/null || true
+
 echo "==> Pulling image ${DOCKER_IMAGE}:${IMAGE_TAG} + latest ..."
 $DOCKER compose -f "${COMPOSE_FILE}" pull app worker reverb scheduler
 
