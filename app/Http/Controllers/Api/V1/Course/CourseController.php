@@ -7,6 +7,7 @@ use App\Models\Course;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -110,7 +111,19 @@ class CourseController extends Controller
             'modules.lessons:id,uuid,course_module_id,title,description,duration_seconds,position,video_url,pdf_url',
         ]);
 
-        return $this->success($this->transform($course, includeStructure: true));
+        // Fetch completed lesson UUIDs for the current user in this course
+        $completedUuids = [];
+        if ($user) {
+            $completedUuids = DB::table('lesson_completions')
+                ->join('lessons', 'lessons.id', '=', 'lesson_completions.lesson_id')
+                ->join('course_modules', 'course_modules.id', '=', 'lessons.course_module_id')
+                ->where('lesson_completions.user_id', $user->id)
+                ->where('course_modules.course_id', $course->id)
+                ->pluck('lessons.uuid')
+                ->toArray();
+        }
+
+        return $this->success($this->transform($course, includeStructure: true, completedUuids: $completedUuids));
     }
 
     /** PATCH /api/v1/courses/{course:uuid} (owner or admin) */
@@ -264,7 +277,7 @@ class CourseController extends Controller
         }
     }
 
-    private function transform(Course $c, bool $includeStructure = false): array
+    private function transform(Course $c, bool $includeStructure = false, array $completedUuids = []): array
     {
         $base = [
             'uuid' => $c->uuid,
@@ -317,6 +330,7 @@ class CourseController extends Controller
                     'duration_seconds' => $l->duration_seconds,
                     'video_url' => $l->video_url,
                     'pdf_url' => $l->pdf_url,
+                    'is_completed' => in_array($l->uuid, $completedUuids),
                     'assignments' => $l->assignments->map(fn ($a) => [
                         'uuid' => $a->uuid,
                         'title' => $a->title,
