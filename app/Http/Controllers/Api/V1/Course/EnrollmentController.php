@@ -10,8 +10,10 @@ use App\Models\Lesson;
 use App\Services\Certificate\CertificateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * SRS 3.3 Student "Enroll in courses · Track progress".
@@ -174,11 +176,39 @@ class EnrollmentController extends Controller
                 'slug' => $e->course->slug,
                 'title' => $e->course->title,
                 'category' => $e->course->category,
-                'thumbnail_url' => $e->course->thumbnail_url,
+                'thumbnail_url' => $this->signedUrl($e->course->thumbnail_url),
                 'duration_hours' => $e->course->duration_hours,
                 'price_tzs' => $e->course->price_tzs,
                 'is_free' => $e->course->isFree(),
             ] : null,
         ];
+    }
+
+    private function signedUrl(?string $url): ?string
+    {
+        if (!$url) return null;
+        if (!str_starts_with($url, 'https://') && !str_starts_with($url, 'http://')) return $url;
+
+        return Cache::remember('signed_url_' . md5($url), now()->addHours(23), function () use ($url) {
+            try {
+                $bucket = config('filesystems.disks.s3.bucket', '');
+                $region = config('filesystems.disks.s3.region', '');
+                $path = null;
+                foreach ([
+                    "https://{$bucket}.s3.{$region}.amazonaws.com/",
+                    "https://{$bucket}.s3.amazonaws.com/",
+                    "https://s3.{$region}.amazonaws.com/{$bucket}/",
+                ] as $prefix) {
+                    if (str_starts_with($url, $prefix)) {
+                        $path = urldecode(substr($url, strlen($prefix)));
+                        break;
+                    }
+                }
+                if (!$path) return $url;
+                return Storage::disk(config('filesystems.default', 's3'))->temporaryUrl($path, now()->addDay());
+            } catch (\Throwable) {
+                return $url;
+            }
+        });
     }
 }

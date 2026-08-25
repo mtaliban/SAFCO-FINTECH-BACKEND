@@ -154,15 +154,18 @@ class MaterialController extends Controller
         // S3 / external URL — redirect; S3 supports Range requests natively so
         // the browser <video> element can seek without any proxy logic here.
         if (str_starts_with($url, 'https://') || str_starts_with($url, 'http://')) {
-            // For private S3 buckets generate a short-lived signed URL (15 min).
-            // For public buckets the URL is already usable — redirect is fine either way.
+            $disposition = $request->query('disposition', 'inline');
+            if (!in_array($disposition, ['inline', 'attachment'], true)) {
+                $disposition = 'inline';
+            }
             try {
                 $disk = config('filesystems.default', 's3');
                 $path = $this->s3PathFromUrl($url);
-                $signed = Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(15));
+                $signed = Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(60), [
+                    'ResponseContentDisposition' => $disposition,
+                ]);
                 return redirect()->away($signed);
             } catch (\Throwable) {
-                // Bucket is public or disk doesn't support signed URLs — redirect directly.
                 return redirect()->away($url);
             }
         }
@@ -358,8 +361,9 @@ class MaterialController extends Controller
             'width' => $m->width,
             'height' => $m->height,
             // Streaming endpoint — used for S3 files and legacy local files
+            // NOTE: no /api prefix — the Next.js proxy prepends /api/ automatically
             'stream_url' => (!str_starts_with($m->url, 'https://www.youtube') && !str_starts_with($m->url, 'https://player.vimeo'))
-                ? "/api/v1/materials/{$m->uuid}/stream" : null,
+                ? "/v1/materials/{$m->uuid}/stream" : null,
         ];
     }
 }

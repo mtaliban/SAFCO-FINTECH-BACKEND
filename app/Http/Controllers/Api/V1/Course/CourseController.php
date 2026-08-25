@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -221,6 +222,40 @@ class CourseController extends Controller
 
     // --- Helpers ---
 
+    /**
+     * Generate a signed S3 URL for private objects, cached for 23 h so list pages
+     * don't hammer the S3 API. Falls back to the raw URL if signing is unsupported.
+     */
+    private function signedUrl(?string $url): ?string
+    {
+        if (!$url) return null;
+        if (!str_starts_with($url, 'https://') && !str_starts_with($url, 'http://')) return $url;
+
+        $cacheKey = 'signed_url_' . md5($url);
+        return Cache::remember($cacheKey, now()->addHours(23), function () use ($url) {
+            try {
+                $disk = config('filesystems.default', 's3');
+                $bucket = config('filesystems.disks.s3.bucket', '');
+                $region = config('filesystems.disks.s3.region', '');
+                $path = null;
+                foreach ([
+                    "https://{$bucket}.s3.{$region}.amazonaws.com/",
+                    "https://{$bucket}.s3.amazonaws.com/",
+                    "https://s3.{$region}.amazonaws.com/{$bucket}/",
+                ] as $prefix) {
+                    if (str_starts_with($url, $prefix)) {
+                        $path = urldecode(substr($url, strlen($prefix)));
+                        break;
+                    }
+                }
+                if (!$path) return $url;
+                return Storage::disk($disk)->temporaryUrl($path, now()->addDay());
+            } catch (\Throwable) {
+                return $url;
+            }
+        });
+    }
+
     private function authorizeOwnerOrAdmin(Course $course, Request $request): void
     {
         $user = $request->user();
@@ -241,7 +276,7 @@ class CourseController extends Controller
             'duration_hours' => $c->duration_hours,
             'price_tzs' => $c->price_tzs,
             'is_free' => $c->isFree(),
-            'thumbnail_url' => $c->thumbnail_url,
+            'thumbnail_url' => $this->signedUrl($c->thumbnail_url),
             'status' => $c->status,
             'rejection_reason' => $c->rejection_reason,
             'instructor' => $c->instructor ? [

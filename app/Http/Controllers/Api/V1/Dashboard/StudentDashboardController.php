@@ -9,6 +9,7 @@ use App\Models\QuizAttempt;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
 /**
@@ -76,7 +77,7 @@ class StudentDashboardController extends Controller
                 'course_id' => $e->course?->uuid,
                 'course_title' => $e->course?->title,
                 'course_category' => $e->course?->category,
-                'thumbnail_url' => $e->course?->thumbnail_url,
+                'thumbnail_url' => $this->signedUrl($e->course?->thumbnail_url),
                 'progress_percentage' => (float) $e->progress_percentage,
                 'enrolled_at' => $e->enrolled_at?->toIso8601String(),
                 'completed_at' => $e->completed_at?->toIso8601String(),
@@ -151,5 +152,33 @@ class StudentDashboardController extends Controller
     {
         $d = (int) $request->query('days', 0);
         return in_array($d, [7, 30, 90, 365], true) ? $d : null;
+    }
+
+    private function signedUrl(?string $url): ?string
+    {
+        if (!$url) return null;
+        if (!str_starts_with($url, 'https://') && !str_starts_with($url, 'http://')) return $url;
+
+        return Cache::remember('signed_url_' . md5($url), now()->addHours(23), function () use ($url) {
+            try {
+                $bucket = config('filesystems.disks.s3.bucket', '');
+                $region = config('filesystems.disks.s3.region', '');
+                $path = null;
+                foreach ([
+                    "https://{$bucket}.s3.{$region}.amazonaws.com/",
+                    "https://{$bucket}.s3.amazonaws.com/",
+                    "https://s3.{$region}.amazonaws.com/{$bucket}/",
+                ] as $prefix) {
+                    if (str_starts_with($url, $prefix)) {
+                        $path = urldecode(substr($url, strlen($prefix)));
+                        break;
+                    }
+                }
+                if (!$path) return $url;
+                return Storage::disk(config('filesystems.default', 's3'))->temporaryUrl($path, now()->addDay());
+            } catch (\Throwable) {
+                return $url;
+            }
+        });
     }
 }
