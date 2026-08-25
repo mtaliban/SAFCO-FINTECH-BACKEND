@@ -247,7 +247,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
           AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
           AWS_BUCKET=${AWS_BUCKET}
-          AWS_URL=
+          AWS_URL=https://${AWS_BUCKET}.s3.${AWS_DEFAULT_REGION}.amazonaws.com
           AWS_ENDPOINT=
           AWS_USE_PATH_STYLE_ENDPOINT=false
           BACKUP_DISK=s3
