@@ -108,7 +108,7 @@ class CourseController extends Controller
 
         $course->load([
             'instructor:id,uuid,email',
-            'modules.lessons:id,uuid,course_module_id,title,description,duration_seconds,position,video_url,pdf_url',
+            'modules.lessons:id,uuid,course_module_id,title,description,content,duration_seconds,position,video_url,pdf_url',
         ]);
 
         // Fetch completed lesson UUIDs for the current user in this course
@@ -328,6 +328,7 @@ class CourseController extends Controller
                     'description' => $l->description,
                     'position' => $l->position,
                     'duration_seconds' => $l->duration_seconds,
+                    'content' => $l->content,
                     'video_url' => $l->video_url,
                     'pdf_url' => $l->pdf_url,
                     'is_completed' => in_array($l->uuid, $completedUuids),
@@ -357,6 +358,11 @@ class CourseController extends Controller
                         'file_size' => $mat->file_size,
                         'position' => $mat->position,
                         'metadata' => $mat->metadata,
+                        // Pre-signed S3 URL (23h cached) for Microsoft Office Online viewer.
+                        // Viewer fetches the file server-side so it bypasses our auth middleware.
+                        'office_viewer_url' => in_array($mat->type, ['document_word', 'document_excel', 'document_powerpoint'])
+                            ? $this->signedUrl($mat->url)
+                            : null,
                     ]),
                 ]),
             ]);

@@ -59,6 +59,12 @@ class ProcessMaterialUpload implements ShouldQueue
                 $material->save();
                 $this->update($material, $mqtt, 'processing', 50, 'Metadata extracted', $meta);
 
+                // Stage 2.5: SCORM package extraction
+                if ($material->type === 'interactive_scorm') {
+                    $this->extractScorm($material, $fullPath);
+                    $this->update($material, $mqtt, 'processing', 65, 'SCORM extracted');
+                }
+
                 // Stage 3: generate thumbnail
                 $thumbnail = $this->generateThumbnail($material, $fullPath);
                 if ($thumbnail) {
@@ -257,6 +263,86 @@ class ProcessMaterialUpload implements ShouldQueue
         }
         fclose($handle);
         return $count ?: null;
+    }
+
+    /**
+     * Extracts a SCORM 1.2/2004 zip into storage/app/scorm/{uuid}/ and
+     * parses imsmanifest.xml to find the SCO launch URL.
+     * Stores `scorm_extracted` + `launch_url` into material metadata.
+     */
+    private function extractScorm(LessonMaterial $material, string $zipPath): void
+    {
+        if (!class_exists('ZipArchive')) {
+            Log::warning('SCORM extraction skipped: ZipArchive extension unavailable', ['uuid' => $material->uuid]);
+            return;
+        }
+
+        $targetDir = storage_path("app/scorm/{$material->uuid}");
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath) !== true) {
+            Log::warning('SCORM: cannot open zip', ['uuid' => $material->uuid]);
+            return;
+        }
+
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0755, true);
+        }
+        $zip->extractTo($targetDir);
+        $zip->close();
+
+        $launchUrl = 'index.html'; // fallback
+
+        $manifestPath = $targetDir . '/imsmanifest.xml';
+        if (file_exists($manifestPath)) {
+            try {
+                libxml_use_internal_errors(true);
+                $xml = simplexml_load_file($manifestPath);
+                if ($xml !== false) {
+                    // Build id → href resource map
+                    $resourceMap = [];
+                    foreach ($xml->resources->resource ?? [] as $res) {
+                        $id   = (string) ($res->attributes()['identifier'] ?? '');
+                        $href = (string) ($res->attributes()['href'] ?? '');
+                        if ($id && $href) $resourceMap[$id] = $href;
+                    }
+
+                    // Walk default organization's first item
+                    $defaultOrg = (string) ($xml->organizations->attributes()['default'] ?? '');
+                    foreach ($xml->organizations->organization ?? [] as $org) {
+                        $orgId = (string) ($org->attributes()['identifier'] ?? '');
+                        if ($defaultOrg && $orgId !== $defaultOrg) continue;
+                        foreach ($org->item ?? [] as $item) {
+                            $ref = (string) ($item->attributes()['identifierref'] ?? '');
+                            if ($ref && isset($resourceMap[$ref])) {
+                                $launchUrl = $resourceMap[$ref];
+                                break 2;
+                            }
+                        }
+                    }
+
+                    // Fallback: first SCO/webcontent resource
+                    if ($launchUrl === 'index.html') {
+                        foreach ($xml->resources->resource ?? [] as $res) {
+                            $type = strtolower((string) ($res->attributes()['type'] ?? ''));
+                            if (str_contains($type, 'sco') || str_contains($type, 'webcontent')) {
+                                $href = (string) ($res->attributes()['href'] ?? '');
+                                if ($href) { $launchUrl = $href; break; }
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::debug('SCORM manifest parse error', ['error' => $e->getMessage(), 'uuid' => $material->uuid]);
+            }
+        }
+
+        $material->metadata = array_merge($material->metadata ?? [], [
+            'scorm_extracted' => true,
+            'launch_url'      => $launchUrl,
+        ]);
+        $material->save();
+
+        Log::info('SCORM extracted', ['uuid' => $material->uuid, 'launch_url' => $launchUrl]);
     }
 
     /**

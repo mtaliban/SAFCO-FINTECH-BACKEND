@@ -268,6 +268,77 @@ class MaterialController extends Controller
         return $this->success(null, 'Material deleted');
     }
 
+    /**
+     * GET /api/v1/scorm/{material:uuid}/{path?}
+     * Serves extracted SCORM package files for iframe embedding.
+     * Public endpoint — UUID (128-bit random) provides security by obscurity.
+     * Same-origin as the Next.js proxy so window.parent.API (SCORM 1.2) works.
+     */
+    public function serveScorm(LessonMaterial $material, Request $request): \Illuminate\Http\Response|\JsonResponse
+    {
+        if ($material->type !== 'interactive_scorm') {
+            return $this->error('Not a SCORM material.', 404);
+        }
+        if (!($material->metadata['scorm_extracted'] ?? false)) {
+            return $this->error('SCORM package not yet extracted — check back in a moment.', 425);
+        }
+
+        $filePath = (string) $request->route('path', '');
+        $filePath = ltrim($filePath, '/');
+
+        if ($filePath === '') {
+            $filePath = $material->metadata['launch_url'] ?? 'index.html';
+        }
+
+        // Prevent directory traversal
+        $filePath = preg_replace('/\.\.+[\/\\\\]?/', '', $filePath);
+
+        $baseDir  = realpath(storage_path("app/scorm/{$material->uuid}"));
+        if (!$baseDir) {
+            return $this->error('SCORM package not found on disk.', 404);
+        }
+
+        $fullPath = realpath($baseDir . DIRECTORY_SEPARATOR . $filePath);
+        if (!$fullPath || !str_starts_with($fullPath, $baseDir)) {
+            abort(403, 'Path traversal denied.');
+        }
+        if (!file_exists($fullPath) || !is_file($fullPath)) {
+            abort(404);
+        }
+
+        $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+        $mimeMap = [
+            'html' => 'text/html; charset=utf-8',
+            'htm'  => 'text/html; charset=utf-8',
+            'js'   => 'application/javascript; charset=utf-8',
+            'mjs'  => 'application/javascript; charset=utf-8',
+            'css'  => 'text/css; charset=utf-8',
+            'json' => 'application/json; charset=utf-8',
+            'xml'  => 'application/xml',
+            'png'  => 'image/png',
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'gif'  => 'image/gif',
+            'svg'  => 'image/svg+xml',
+            'webp' => 'image/webp',
+            'mp4'  => 'video/mp4',
+            'mp3'  => 'audio/mpeg',
+            'ogg'  => 'audio/ogg',
+            'woff' => 'font/woff',
+            'woff2'=> 'font/woff2',
+            'ttf'  => 'font/ttf',
+            'eot'  => 'application/vnd.ms-fontobject',
+            'swf'  => 'application/x-shockwave-flash',
+        ];
+        $mime = $mimeMap[$ext] ?? (mime_content_type($fullPath) ?: 'application/octet-stream');
+
+        return response()->file($fullPath, [
+            'Content-Type'    => $mime,
+            'Cache-Control'   => 'no-cache',
+            'X-Frame-Options' => 'SAMEORIGIN',
+        ]);
+    }
+
     /** POST /api/v1/lessons/{lesson:uuid}/materials/reorder */
     public function reorder(Lesson $lesson, Request $request): JsonResponse
     {

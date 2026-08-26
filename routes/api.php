@@ -233,6 +233,13 @@ Route::prefix('v1')->group(function () {
             ->name('materials.stream');
     });
 
+    // SCORM content serving — public (UUID = 128-bit random security). Same-origin as Next.js
+    // so window.parent.API (SCORM 1.2) works inside the iframe without CORS issues.
+    Route::get('scorm/{material:uuid}/{path?}', [\App\Http\Controllers\Api\V1\Course\MaterialController::class, 'serveScorm'])
+        ->where('path', '.*')
+        ->withoutMiddleware(['throttle:api'])
+        ->name('materials.scorm');
+
     Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|system_admin'])->group(function () {
         // Placeholder to keep route grouping consistent after the extract above
 
