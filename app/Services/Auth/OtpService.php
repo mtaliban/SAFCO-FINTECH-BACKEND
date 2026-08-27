@@ -4,18 +4,17 @@ namespace App\Services\Auth;
 
 use App\Events\User\OtpRequested;
 use App\Models\OtpCode;
-use App\Services\EventBus\EventDispatcher;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Event;
 
 class OtpService
 {
-    public function __construct(protected EventDispatcher $events)
-    {
-    }
-
     /**
      * Generate an OTP code, store it, and dispatch an event so
      * downstream workers (SMS/Email) actually deliver it.
+     *
+     * Uses Laravel's built-in event system (not the outbox EventDispatcher)
+     * because OTP delivery is time-sensitive and must fire immediately
+     * via the queued SendOtpNotification listener.
      */
     public function generate(
         string $identifier,
@@ -31,7 +30,6 @@ class OtpService
             ->update(['expires_at' => now()->subMinute()]);
 
         $code = $this->generateCode();
-        $length = (int) config('auth.otp.length', 6);
         $expiryMinutes = (int) config('auth.otp.expiry_minutes', 5);
 
         $otp = OtpCode::create([
@@ -44,7 +42,7 @@ class OtpService
             'ip_address' => $ipAddress,
         ]);
 
-        $this->events->dispatch(new OtpRequested(
+        Event::dispatch(new OtpRequested(
             identifier: $identifier,
             code: $code,
             type: $type,
