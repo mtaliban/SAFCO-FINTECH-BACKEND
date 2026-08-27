@@ -2,20 +2,13 @@
 
 namespace App\Services\Auth;
 
-use App\Events\User\OtpRequested;
+use App\Mail\OtpMail;
 use App\Models\OtpCode;
-use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class OtpService
 {
-    /**
-     * Generate an OTP code, store it, and dispatch an event so
-     * downstream workers (SMS/Email) actually deliver it.
-     *
-     * Uses Laravel's built-in event system (not the outbox EventDispatcher)
-     * because OTP delivery is time-sensitive and must fire immediately
-     * via the queued SendOtpNotification listener.
-     */
     public function generate(
         string $identifier,
         string $type,
@@ -23,7 +16,6 @@ class OtpService
         ?int $userId = null,
         ?string $ipAddress = null,
     ): OtpCode {
-        // Invalidate previous unverified codes of the same type
         OtpCode::where('identifier', $identifier)
             ->where('type', $type)
             ->whereNull('verified_at')
@@ -33,22 +25,27 @@ class OtpService
         $expiryMinutes = (int) config('auth.otp.expiry_minutes', 5);
 
         $otp = OtpCode::create([
-            'user_id' => $userId,
+            'user_id'    => $userId,
             'identifier' => $identifier,
-            'code' => $code,
-            'type' => $type,
-            'channel' => $channel,
+            'code'       => $code,
+            'type'       => $type,
+            'channel'    => $channel,
             'expires_at' => now()->addMinutes($expiryMinutes),
             'ip_address' => $ipAddress,
         ]);
 
-        Event::dispatch(new OtpRequested(
-            identifier: $identifier,
-            code: $code,
-            type: $type,
-            channel: $channel,
-            userId: $userId,
-        ));
+        if ($channel === 'email') {
+            try {
+                Mail::to($identifier)->send(new OtpMail($code, $type));
+            } catch (\Throwable $e) {
+                Log::error('OTP email failed', [
+                    'to'    => $identifier,
+                    'type'  => $type,
+                    'error' => $e->getMessage(),
+                ]);
+                throw $e;
+            }
+        }
 
         return $otp;
     }
