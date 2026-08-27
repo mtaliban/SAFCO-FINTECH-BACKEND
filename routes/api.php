@@ -78,7 +78,9 @@ Route::prefix('v1')->group(function () {
         // Admin-only: user management
         Route::prefix('admin/users')->middleware('role:system_admin')->group(function () {
             Route::get('/', [UserController::class, 'index'])->name('admin.users.index');
+            Route::post('/', [UserController::class, 'store'])->name('admin.users.store');
             Route::get('{user:uuid}', [UserController::class, 'show'])->name('admin.users.show');
+            Route::put('{user:uuid}', [UserController::class, 'update'])->name('admin.users.update');
             Route::patch('{user:uuid}/status', [UserController::class, 'updateStatus'])->name('admin.users.status');
             Route::delete('{user:uuid}', [UserController::class, 'destroy'])->name('admin.users.destroy');
         });
