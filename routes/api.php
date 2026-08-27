@@ -312,6 +312,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|facilitator|system_admin'])->prefix('trainer')->group(function () {
         Route::get('my-quizzes', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'index'])->name('trainer.my-quizzes');
         Route::get('my-sessions', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'sessions'])->name('trainer.my-sessions');
+        Route::get('my-students', [\App\Http\Controllers\Api\V1\Trainer\MyStudentsController::class, 'index'])->name('trainer.my-students');
         Route::get('dashboard', [\App\Http\Controllers\Api\V1\Dashboard\TrainerDashboardController::class, 'index'])
             ->middleware(['throttle:60,1', 'role:trainer|system_admin'])->name('trainer.dashboard');
         Route::get('courses/{courseUuid}/report', [\App\Http\Controllers\Api\V1\Dashboard\TrainerDashboardController::class, 'courseReport'])
