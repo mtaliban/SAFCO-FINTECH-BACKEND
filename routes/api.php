@@ -30,6 +30,7 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->middleware('throttle:auth')->group(function () {
         Route::post('register', RegisterController::class)->name('auth.register');
         Route::post('login', [LoginController::class, 'login'])->name('auth.login');
+        Route::post('login/verify', [LoginController::class, 'verifyOtp'])->name('auth.login.verify');
 
         // Password reset
         Route::post('password/forgot', [PasswordResetController::class, 'forgot'])->name('auth.password.forgot');

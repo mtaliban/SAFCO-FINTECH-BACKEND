@@ -36,17 +36,13 @@ class OtpController extends Controller
             ->orWhere('phone', $request->identifier)
             ->first();
 
-        try {
-            $this->otp->generate(
-                identifier: $request->identifier,
-                type: $request->type,
-                channel: $request->channel,
-                userId: $user?->id,
-                ipAddress: $request->ip(),
-            );
-        } catch (\Throwable $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
+        $this->otp->generate(
+            identifier: $request->identifier,
+            type: $request->type,
+            channel: $request->channel,
+            userId: $user?->id,
+            ipAddress: $request->ip(),
+        );
 
         return $this->success(null, "OTP sent via {$request->channel}.");
     }

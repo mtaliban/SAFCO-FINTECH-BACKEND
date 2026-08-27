@@ -22,15 +22,12 @@ class AuthService
     protected const MAX_FAILED_ATTEMPTS = 5;
     protected const LOCK_MINUTES = 30;
 
-    public function __construct(protected EventDispatcher $events)
-    {
+    public function __construct(
+        protected EventDispatcher $events,
+        protected OtpService $otp,
+    ) {
     }
 
-    /**
-     * Register a new user with email + password.
-     * Also creates the associated profile inside a single DB transaction,
-     * then persists a UserRegistered event to the outbox atomically.
-     */
     public function register(array $data): User
     {
         return DB::transaction(function () use ($data) {
@@ -48,13 +45,13 @@ class AuthService
             ]);
 
             UserProfile::create([
-                'user_id' => $user->id,
-                'full_name' => $data['full_name'],
+                'user_id'    => $user->id,
+                'full_name'  => $data['full_name'],
                 'first_name' => $data['first_name'] ?? null,
-                'last_name' => $data['last_name'] ?? null,
-                'gender' => $data['gender'] ?? null,
-                'position' => $data['position'] ?? null,
-                'country' => $data['country'] ?? 'Tanzania',
+                'last_name'  => $data['last_name'] ?? null,
+                'gender'     => $data['gender'] ?? null,
+                'position'   => $data['position'] ?? null,
+                'country'    => $data['country'] ?? 'Tanzania',
             ]);
 
             $roleName = $data['role'] ?? 'student';
@@ -71,15 +68,14 @@ class AuthService
     }
 
     /**
-     * Attempt to authenticate a user with email/phone + password.
-     * On success: creates a Sanctum token and dispatches UserLoggedIn.
-     * On failure: increments counter, dispatches LoginFailed, and
-     * locks the account after MAX_FAILED_ATTEMPTS.
+     * Step 1 of login: validate credentials, then send OTP to email.
+     * Returns ['otp_sent' => true, 'email' => $email] when OTP sent,
+     * or a full token array for phone-only users (no email to send OTP to).
      */
     public function login(array $credentials, Request $request): array
     {
-        $identifier = $credentials['identifier']; // email or phone
-        $password = $credentials['password'];
+        $identifier = $credentials['identifier'];
+        $password   = $credentials['password'];
         $deviceName = $credentials['device_name'] ?? 'web';
 
         $user = User::where('email', $identifier)
@@ -118,10 +114,70 @@ class AuthService
             ]);
         }
 
-        // Success — issue token, reset counters, record history, emit event
+        // Reset failed counter on correct credentials
+        $user->update(['failed_login_attempts' => 0, 'locked_until' => null]);
+
+        // If user has email: send OTP and pause until verified
+        if ($user->email) {
+            $this->otp->generate(
+                identifier: $user->email,
+                type: 'login',
+                channel: 'email',
+                userId: $user->id,
+                ipAddress: $request->ip(),
+            );
+
+            return ['otp_sent' => true, 'email' => $user->email];
+        }
+
+        // Phone-only user: issue token directly
+        return $this->issueToken($user, $deviceName, $request);
+    }
+
+    /**
+     * Step 2 of login: verify the OTP sent to email, then issue Sanctum token.
+     */
+    public function verifyLoginOtp(string $email, string $code, string $deviceName, Request $request): array
+    {
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'code' => 'Akaunti haikupatikana.',
+            ]);
+        }
+
+        if (! $this->otp->verify($email, $code, 'login')) {
+            throw ValidationException::withMessages([
+                'code' => 'Nambari si sahihi au imeisha muda wake.',
+            ]);
+        }
+
+        return $this->issueToken($user, $deviceName, $request);
+    }
+
+    public function logout(User $user, Request $request): void
+    {
+        $user->currentAccessToken()?->delete();
+
+        $this->events->dispatch(
+            new UserLoggedOut($user, $request->ip()),
+            aggregateType: User::class,
+            aggregateId: $user->id
+        );
+
+        LoginHistory::create([
+            'user_id'    => $user->id,
+            'email'      => $user->email,
+            'status'     => 'logged_out',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+    }
+
+    protected function issueToken(User $user, string $deviceName, Request $request): array
+    {
         $user->update([
-            'failed_login_attempts' => 0,
-            'locked_until' => null,
             'last_login_at' => now(),
             'last_login_ip' => $request->ip(),
         ]);
@@ -152,31 +208,12 @@ class AuthService
         );
 
         return [
-            'user' => $user->fresh(['profile', 'organization', 'roles']),
-            'token' => $token->plainTextToken,
-            'token_type' => 'Bearer',
-            'expires_at' => $token->accessToken->expires_at?->toIso8601String(),
-            'requires_2fa' => $user->two_factor_enabled,
+            'user'         => $user->fresh(['profile', 'organization', 'roles']),
+            'token'        => $token->plainTextToken,
+            'token_type'   => 'Bearer',
+            'expires_at'   => $token->accessToken->expires_at?->toIso8601String(),
+            'requires_2fa' => false,
         ];
-    }
-
-    public function logout(User $user, Request $request): void
-    {
-        $user->currentAccessToken()?->delete();
-
-        $this->events->dispatch(
-            new UserLoggedOut($user, $request->ip()),
-            aggregateType: User::class,
-            aggregateId: $user->id
-        );
-
-        LoginHistory::create([
-            'user_id' => $user->id,
-            'email' => $user->email,
-            'status' => 'logged_out',
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-        ]);
     }
 
     protected function handleFailedAttempt(User $user): void
@@ -185,7 +222,7 @@ class AuthService
 
         if ($user->failed_login_attempts >= self::MAX_FAILED_ATTEMPTS) {
             $user->update([
-                'locked_until' => now()->addMinutes(self::LOCK_MINUTES),
+                'locked_until'          => now()->addMinutes(self::LOCK_MINUTES),
                 'failed_login_attempts' => 0,
             ]);
 
@@ -207,26 +244,26 @@ class AuthService
         $agent->setUserAgent($request->userAgent() ?? '');
 
         LoginHistory::create([
-            'user_id' => $user->id,
-            'email' => $user->email,
-            'status' => 'success',
+            'user_id'     => $user->id,
+            'email'       => $user->email,
+            'status'      => 'success',
             'auth_method' => 'email',
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
+            'ip_address'  => $request->ip(),
+            'user_agent'  => $request->userAgent(),
             'device_type' => $agent->deviceType(),
             'device_name' => $agent->device(),
-            'browser' => $agent->browser(),
-            'os' => $agent->platform(),
+            'browser'     => $agent->browser(),
+            'os'          => $agent->platform(),
         ]);
     }
 
     protected function recordFailedLogin(string $identifier, string $reason, Request $request): void
     {
         LoginHistory::create([
-            'email' => $identifier,
-            'status' => 'failed',
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
+            'email'          => $identifier,
+            'status'         => 'failed',
+            'ip_address'     => $request->ip(),
+            'user_agent'     => $request->userAgent(),
             'failure_reason' => $reason,
         ]);
     }
