@@ -352,6 +352,11 @@ Route::prefix('v1')->group(function () {
         Route::post('announcements/preview', [\App\Http\Controllers\Api\V1\Notifications\BroadcastController::class, 'preview'])->name('admin.announcements.preview');
         Route::post('announcements', [\App\Http\Controllers\Api\V1\Notifications\BroadcastController::class, 'store'])
             ->middleware('throttle:10,60')->name('admin.announcements.store');
+
+        // System Settings (SRS Configure System)
+        Route::get('settings', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'index'])->name('admin.settings.index');
+        Route::put('settings', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'update'])->name('admin.settings.update');
+        Route::post('settings/reset', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'reset'])->name('admin.settings.reset');
     });
 
     /* ============================================================

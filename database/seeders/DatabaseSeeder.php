@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             OrganizationSeeder::class,
             AdminUserSeeder::class,
             DemoAccountsSeeder::class,
+            SystemSettingsSeeder::class,
         ]);
     }
 }
