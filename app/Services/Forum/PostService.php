@@ -6,7 +6,9 @@ use App\Models\Forum\ForumPost;
 use App\Models\Forum\ForumSubscription;
 use App\Models\Forum\ForumThread;
 use App\Models\User;
+use App\Services\EventBus\MqttPublisher;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * SRS Module 14 — Reply lifecycle.
@@ -22,6 +24,7 @@ class PostService
     public function __construct(
         private readonly MentionParser $mentions,
         private readonly NotificationService $notifications,
+        private readonly MqttPublisher $mqtt,
     ) {}
 
     public function reply(ForumThread $thread, User $author, string $body, ?int $parentPostId = null): ForumPost
@@ -71,6 +74,24 @@ class PostService
         $mentioned = $post->getRelation('_mentioned');
         if ($mentioned && $mentioned->isNotEmpty()) {
             $this->notifications->notifyMentions($thread, $post, $mentioned, $author);
+        }
+
+        // Broadcast new reply via MQTT so open thread pages update in real-time
+        try {
+            $this->mqtt->publishRaw(
+                topic: "safco/lms/forum/thread/{$thread->uuid}/reply",
+                payload: [
+                    'uuid'         => $post->uuid,
+                    'author_name'  => $author->userProfile?->full_name ?? $author->email,
+                    'body_preview' => mb_substr($post->body, 0, 140),
+                    'created_at'   => $post->created_at?->toIso8601String(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[forum] MQTT reply broadcast failed', [
+                'thread_uuid' => $thread->uuid,
+                'error'       => $e->getMessage(),
+            ]);
         }
 
         return $post;

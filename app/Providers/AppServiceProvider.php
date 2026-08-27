@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Policies\UserPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -19,6 +22,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Register model policies
+        Gate::policy(User::class, UserPolicy::class);
+
         // Default API rate limit (60 req/min per user or IP)
         RateLimiter::for('api', fn (Request $r) => Limit::perMinute((int) env('RATE_LIMIT_API', 60))
             ->by($r->user()?->id ?: $r->ip()));

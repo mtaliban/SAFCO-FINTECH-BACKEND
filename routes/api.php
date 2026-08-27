@@ -593,5 +593,15 @@ Route::prefix('v1')->group(function () {
             ->name('devices.store');
         Route::delete('devices', [\App\Http\Controllers\Api\V1\Notifications\DeviceTokenController::class, 'destroy'])
             ->name('devices.destroy');
+
+        // SRS Future — AI Features (question generator, tutor, grader)
+        Route::prefix('ai')->middleware('throttle:30,1')->group(function () {
+            Route::post('generate-questions', [\App\Http\Controllers\Api\V1\AiController::class, 'generateQuestions'])
+                ->name('ai.generate-questions');
+            Route::post('tutor', [\App\Http\Controllers\Api\V1\AiController::class, 'tutor'])
+                ->name('ai.tutor');
+            Route::post('grade', [\App\Http\Controllers\Api\V1\AiController::class, 'grade'])
+                ->name('ai.grade');
+        });
     });
 });
