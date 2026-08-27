@@ -20,6 +20,12 @@ class UserProfileService
     public function update(User $user, array $data): User
     {
         return DB::transaction(function () use ($user, $data) {
+            // Phone lives on users table, not user_profiles
+            if (array_key_exists('phone', $data)) {
+                $user->update(['phone' => $data['phone']]);
+                unset($data['phone']);
+            }
+
             $profile = $user->profile ?? $user->profile()->create(['full_name' => $data['full_name'] ?? $user->email]);
 
             $changes = array_diff_assoc($data, $profile->only(array_keys($data)));

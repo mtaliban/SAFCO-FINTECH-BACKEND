@@ -14,6 +14,7 @@ class UpdateProfileRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'phone'     => ['sometimes', 'nullable', 'string', 'max:20'],
             'full_name' => ['sometimes', 'string', 'max:255'],
             'first_name' => ['sometimes', 'nullable', 'string', 'max:100'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:100'],
