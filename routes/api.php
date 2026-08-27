@@ -357,6 +357,10 @@ Route::prefix('v1')->group(function () {
         Route::get('settings', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'index'])->name('admin.settings.index');
         Route::put('settings', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'update'])->name('admin.settings.update');
         Route::post('settings/reset', [\App\Http\Controllers\Api\V1\Admin\SystemSettingsController::class, 'reset'])->name('admin.settings.reset');
+
+        // Billing / Subscriptions (SRS 3.1 Manage Subscriptions)
+        Route::get('billing', [\App\Http\Controllers\Api\V1\Admin\AdminBillingController::class, 'index'])->name('admin.billing.index');
+        Route::get('billing/export', [\App\Http\Controllers\Api\V1\Admin\AdminBillingController::class, 'export'])->name('admin.billing.export');
     });
 
     /* ============================================================

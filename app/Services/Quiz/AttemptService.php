@@ -6,6 +6,7 @@ use App\Models\Question;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizAttemptAnswer;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Services\Certificate\CertificateService;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,18 @@ class AttemptService
 
         // Reap any expired attempts so the user isn't blocked by them
         $this->autoCloseExpired($user, $quiz);
+
+        // Enforce system-wide max daily attempts (0 = unlimited)
+        $maxDaily = (int) SystemSetting::get('quiz.max_daily_attempts', 0);
+        if ($maxDaily > 0) {
+            $todayCount = $quiz->attempts()
+                ->where('user_id', $user->id)
+                ->whereDate('started_at', now()->toDateString())
+                ->count();
+            if ($todayCount >= $maxDaily) {
+                throw new \DomainException("Daily attempt limit of {$maxDaily} reached. Try again tomorrow.");
+            }
+        }
 
         // Block if user already has an in-progress attempt
         $active = $quiz->attempts()
@@ -294,7 +307,8 @@ class AttemptService
             $quiz = $attempt->quiz;
             $duration = (int) $attempt->started_at?->diffInSeconds(now());
             $percentage = (float) $attempt->percentage;
-            $passed = $percentage >= (float) ($quiz->passing_mark_percentage ?? 50);
+            $systemDefault = (float) SystemSetting::get('quiz.default_pass_score', 60);
+            $passed = $percentage >= (float) ($quiz->passing_mark_percentage ?? $systemDefault);
 
             $attempt->update([
                 'status' => $reason ? 'expired' : 'completed',
