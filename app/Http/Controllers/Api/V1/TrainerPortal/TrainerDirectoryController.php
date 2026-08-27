@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api\V1\TrainerPortal;
 
 use App\Http\Controllers\Controller;
 use App\Models\TrainerProfile;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * SRS Module 13 — Public trainer directory.
@@ -14,9 +17,42 @@ use Illuminate\Http\Request;
  */
 class TrainerDirectoryController extends Controller
 {
+    /** Ensure every active trainer has a public TrainerProfile. Cached for 1 hour. */
+    private function provisionMissingProfiles(): void
+    {
+        if (Cache::has('trainer_profiles_provisioned')) return;
+
+        User::whereHas('roles', fn ($q) => $q->where('name', 'trainer'))
+            ->where('status', 'active')
+            ->whereDoesntHave('trainerProfile')
+            ->with('profile')
+            ->get()
+            ->each(function (User $user) {
+                $name = $user->profile?->full_name ?? explode('@', $user->email)[0];
+                $base = Str::slug($name ?: 'trainer');
+                do {
+                    $slug = $base . '-' . Str::random(5);
+                } while (TrainerProfile::where('public_slug', $slug)->exists());
+
+                TrainerProfile::create([
+                    'user_id'             => $user->id,
+                    'public_slug'         => $slug,
+                    'is_public'           => true,
+                    'availability_status' => 'available',
+                    'expertise_areas'     => [],
+                    'teaching_languages'  => ['en'],
+                    'timezone'            => 'Africa/Nairobi',
+                ]);
+            });
+
+        Cache::put('trainer_profiles_provisioned', true, now()->addHour());
+    }
+
     /** GET /trainers (public, throttled) */
     public function index(Request $request): JsonResponse
     {
+        $this->provisionMissingProfiles();
+
         $q = TrainerProfile::query()
             ->with([
                 'user:id,uuid,email',

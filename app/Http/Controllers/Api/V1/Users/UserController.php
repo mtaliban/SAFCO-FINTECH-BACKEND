@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Users;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Models\TrainerProfile;
 use App\Models\User;
 use App\Models\UserProfile;
 use Illuminate\Http\JsonResponse;
@@ -88,6 +89,25 @@ class UserController extends Controller
         ]);
 
         $user->assignRole($data['role']);
+
+        // Auto-provision a public TrainerProfile for new trainer accounts
+        if ($data['role'] === 'trainer') {
+            $name = $data['full_name'];
+            $base = \Illuminate\Support\Str::slug($name ?: 'trainer');
+            do {
+                $slug = $base . '-' . \Illuminate\Support\Str::random(5);
+            } while (TrainerProfile::where('public_slug', $slug)->exists());
+
+            TrainerProfile::create([
+                'user_id'             => $user->id,
+                'public_slug'         => $slug,
+                'is_public'           => true,
+                'availability_status' => 'available',
+                'expertise_areas'     => [],
+                'teaching_languages'  => ['en'],
+                'timezone'            => 'Africa/Nairobi',
+            ]);
+        }
 
         return $this->success(
             new UserResource($user->load(['profile', 'organization', 'roles'])),
