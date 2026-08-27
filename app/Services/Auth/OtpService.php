@@ -2,7 +2,6 @@
 
 namespace App\Services\Auth;
 
-use App\Mail\OtpMail;
 use App\Models\OtpCode;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -36,7 +35,11 @@ class OtpService
 
         if ($channel === 'email') {
             try {
-                Mail::to($identifier)->send(new OtpMail($code, $type));
+                $label = str_replace('_', ' ', $type);
+                $body = "Your SAFCO FINTECH LMS {$label} code is: {$code}\n\nExpires in {$expiryMinutes} minutes.\n\nIf you did not request this, ignore this email.";
+                Mail::raw($body, function ($msg) use ($identifier, $label) {
+                    $msg->to($identifier)->subject("SAFCO LMS - Your {$label} code");
+                });
             } catch (\Throwable $e) {
                 Log::error('OTP email failed', [
                     'to'    => $identifier,
