@@ -223,7 +223,7 @@ class CourseController extends Controller
     public function instructors(Request $request): JsonResponse
     {
         $instructors = \App\Models\User::with('profile:user_id,full_name')
-            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['trainer', 'facilitator', 'system_admin']))
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['trainer', 'system_admin']))
             ->get(['id', 'uuid', 'email'])
             ->map(fn ($u) => [
                 'uuid' => $u->uuid,

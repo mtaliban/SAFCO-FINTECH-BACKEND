@@ -49,7 +49,7 @@ class BroadcastController extends Controller
     {
         $data = $request->validate([
             'segment' => ['nullable', 'array'],
-            'segment.role' => ['nullable', 'string', 'in:student,trainer,facilitator,corporate_client,system_admin'],
+            'segment.role' => ['nullable', 'string', 'in:student,trainer,corporate_client,system_admin'],
             'segment.course_id' => ['nullable', 'integer', 'exists:courses,id'],
             'segment.organization_id' => ['nullable', 'integer'],
         ]);
@@ -64,7 +64,7 @@ class BroadcastController extends Controller
             'title' => ['required', 'string', 'min:3', 'max:200'],
             'body' => ['required', 'string', 'min:5', 'max:10000'],
             'segment' => ['nullable', 'array'],
-            'segment.role' => ['nullable', 'string', 'in:student,trainer,facilitator,corporate_client,system_admin'],
+            'segment.role' => ['nullable', 'string', 'in:student,trainer,corporate_client,system_admin'],
             'segment.course_id' => ['nullable', 'integer', 'exists:courses,id'],
             'segment.organization_id' => ['nullable', 'integer'],
             'segment.action_url' => ['nullable', 'url', 'max:500'],

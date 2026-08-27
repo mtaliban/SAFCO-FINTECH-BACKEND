@@ -66,7 +66,7 @@ class PostController extends Controller
     public function destroy(ForumPost $post, Request $request): JsonResponse
     {
         $user = $request->user();
-        $isModerator = $user->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $user->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $post->author_id !== (int) $user->id && !$isModerator) {
             return $this->error('You cannot delete this post.', 403);
         }

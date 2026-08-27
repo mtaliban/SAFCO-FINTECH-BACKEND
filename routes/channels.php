@@ -45,7 +45,7 @@ Broadcast::channel('attendance-session.{sessionId}', function (User $user, int $
 Broadcast::channel('forum-thread.{threadUuid}', function (User $user, string $threadUuid) {
     $thread = ForumThread::where('uuid', $threadUuid)->first();
     if (!$thread) return false;
-    if ($user->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) return true;
+    if ($user->hasAnyRole(['system_admin', 'trainer'])) return true;
     return \DB::table('forum_subscriptions')
         ->where('thread_id', $thread->id)
         ->where('user_id', $user->id)

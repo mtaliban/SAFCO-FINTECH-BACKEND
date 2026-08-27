@@ -25,7 +25,7 @@ class CourseApiTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['system_admin', 'trainer', 'student', 'corporate_client', 'facilitator'] as $r) {
+        foreach (['system_admin', 'trainer', 'student', 'corporate_client'] as $r) {
             Role::firstOrCreate(['name' => $r, 'guard_name' => 'web']);
         }
     }

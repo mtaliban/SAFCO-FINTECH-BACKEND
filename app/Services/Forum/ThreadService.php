@@ -83,7 +83,7 @@ class ThreadService
     public function update(ForumThread $thread, User $actor, array $data): ForumThread
     {
         // Only the author OR a moderator/admin can edit.
-        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $thread->author_id !== (int) $actor->id && !$isModerator) {
             throw new \DomainException('You cannot edit this thread.');
         }
@@ -94,7 +94,7 @@ class ThreadService
 
     public function moderate(ForumThread $thread, User $actor, array $data): ForumThread
     {
-        if (!$actor->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) {
+        if (!$actor->hasAnyRole(['system_admin', 'trainer'])) {
             throw new \DomainException('Only moderators may change thread state.');
         }
         $willHide = array_key_exists('is_hidden', $data) && $data['is_hidden'];
@@ -129,7 +129,7 @@ class ThreadService
         if ((int) $post->thread_id !== (int) $thread->id) {
             throw new \DomainException('Post does not belong to this thread.');
         }
-        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $thread->author_id !== (int) $actor->id && !$isModerator) {
             throw new \DomainException('Only the thread author or an instructor can accept an answer.');
         }
@@ -156,7 +156,7 @@ class ThreadService
 
         // Instructor of the course, or trainer role, or admin
         if ((int) $course->instructor_id === (int) $user->id) return;
-        if ($user->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) return;
+        if ($user->hasAnyRole(['system_admin', 'trainer'])) return;
 
         // Otherwise require an enrollment.
         $enrolled = Enrollment::where('user_id', $user->id)

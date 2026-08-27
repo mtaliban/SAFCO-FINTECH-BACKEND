@@ -41,7 +41,7 @@ class ReportController extends Controller
     /** GET /forum/reports — moderator queue */
     public function index(Request $request): JsonResponse
     {
-        if (!$request->user()->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) {
+        if (!$request->user()->hasAnyRole(['system_admin', 'trainer'])) {
             return $this->error('Forbidden', 403);
         }
         $status = $request->query('status', 'open');

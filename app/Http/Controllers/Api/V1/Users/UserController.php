@@ -62,7 +62,7 @@ class UserController extends Controller
             'first_name' => ['nullable', 'string', 'max:100'],
             'last_name'  => ['nullable', 'string', 'max:100'],
             'phone'      => ['nullable', 'string', 'max:20'],
-            'role'       => ['required', 'in:student,trainer,facilitator,corporate_client,system_admin'],
+            'role'       => ['required', 'in:student,trainer,corporate_client,system_admin'],
             'status'     => ['nullable', 'in:active,pending,suspended,inactive'],
             'position'   => ['nullable', 'string', 'max:255'],
             'gender'     => ['nullable', 'in:male,female,other,prefer_not_to_say'],
@@ -130,7 +130,7 @@ class UserController extends Controller
             'last_name'  => ['nullable', 'string', 'max:100'],
             'position'   => ['nullable', 'string', 'max:255'],
             'gender'     => ['nullable', 'in:male,female,other,prefer_not_to_say'],
-            'role'       => ['nullable', 'in:student,trainer,facilitator,corporate_client,system_admin'],
+            'role'       => ['nullable', 'in:student,trainer,corporate_client,system_admin'],
             'status'     => ['nullable', 'in:active,pending,suspended,inactive'],
         ]);
 

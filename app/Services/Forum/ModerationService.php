@@ -44,7 +44,7 @@ class ModerationService
 
     public function resolve(ForumReport $report, User $moderator, string $status, ?string $note = null): ForumReport
     {
-        if (!$moderator->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) {
+        if (!$moderator->hasAnyRole(['system_admin', 'trainer'])) {
             throw new \DomainException('Only moderators may resolve reports.');
         }
         if (!in_array($status, ['resolved', 'dismissed'], true)) {

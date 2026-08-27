@@ -65,7 +65,7 @@ class AttachmentController extends Controller
     private function guardCanAttach(int $ownerUserId, Request $request): void
     {
         $user = $request->user();
-        $isModerator = $user->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $user->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $ownerUserId !== (int) $user->id && !$isModerator) {
             abort(403, 'You cannot attach files to another user\'s post.');
         }
@@ -145,7 +145,7 @@ class AttachmentController extends Controller
     public function destroy(ForumAttachment $attachment, Request $request): JsonResponse
     {
         $user = $request->user();
-        $isModerator = $user->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $user->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $attachment->uploaded_by !== (int) $user->id && !$isModerator) {
             return $this->error('You cannot delete this attachment.', 403);
         }

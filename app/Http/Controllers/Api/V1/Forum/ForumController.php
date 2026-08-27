@@ -111,7 +111,7 @@ class ForumController extends Controller
     public function show(ForumThread $thread, Request $request): JsonResponse
     {
         $user = $request->user();
-        if ($thread->is_hidden && !$user?->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) {
+        if ($thread->is_hidden && !$user?->hasAnyRole(['system_admin', 'trainer'])) {
             return $this->error('Thread not available.', 404);
         }
 
@@ -191,8 +191,8 @@ class ForumController extends Controller
                 'can_edit_thread' => $user && ((int) $user->id === (int) $thread->author_id),
                 'can_accept_answer' => $user && $thread->category?->supports_accepted_answer &&
                     ((int) $user->id === (int) $thread->author_id ||
-                     $user->hasAnyRole(['system_admin', 'trainer', 'facilitator'])),
-                'can_moderate' => $user && $user->hasAnyRole(['system_admin', 'trainer', 'facilitator']),
+                     $user->hasAnyRole(['system_admin', 'trainer'])),
+                'can_moderate' => $user && $user->hasAnyRole(['system_admin', 'trainer']),
             ],
         ]);
     }

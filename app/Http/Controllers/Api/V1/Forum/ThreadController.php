@@ -92,7 +92,7 @@ class ThreadController extends Controller
     public function destroy(ForumThread $thread, Request $request): JsonResponse
     {
         $user = $request->user();
-        $isModerator = $user->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $user->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $thread->author_id !== (int) $user->id && !$isModerator) {
             return $this->error('You cannot delete this thread.', 403);
         }

@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Hash;
 
 /**
  * Seeds one demo account per SRS role that isn't already present:
- * - facilitator
  * - student
  * - corporate_client (attached to Bank of Tanzania per SRS mfano)
  *
@@ -22,22 +21,6 @@ class DemoAccountsSeeder extends Seeder
     {
         $safco = Organization::where('name', 'SAFCO FINTECH LTD')->first();
         $bot   = Organization::where('name', 'Bank of Tanzania')->first();
-
-        // Facilitator
-        $facilitator = User::firstOrCreate(
-            ['email' => 'facilitator@safcofintech.co.tz'],
-            [
-                'password' => Hash::make('Facilitator@2026!'),
-                'organization_id' => $safco?->id,
-                'status' => 'active',
-                'email_verified_at' => now(),
-            ]
-        );
-        UserProfile::firstOrCreate(
-            ['user_id' => $facilitator->id],
-            ['full_name' => 'Amina Facilitator', 'first_name' => 'Amina', 'last_name' => 'Facilitator', 'position' => 'Session Facilitator', 'country' => 'Tanzania']
-        );
-        $facilitator->syncRoles(['facilitator']);
 
         // Student
         $student = User::firstOrCreate(

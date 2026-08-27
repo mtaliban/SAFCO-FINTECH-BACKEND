@@ -44,7 +44,7 @@ class ForumAuditTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['system_admin', 'trainer', 'student', 'facilitator'] as $r) {
+        foreach (['system_admin', 'trainer', 'student'] as $r) {
             Role::firstOrCreate(['name' => $r, 'guard_name' => 'web']);
         }
     }

@@ -99,7 +99,7 @@ class PostService
 
     public function update(ForumPost $post, User $actor, string $body): ForumPost
     {
-        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer', 'facilitator']);
+        $isModerator = $actor->hasAnyRole(['system_admin', 'trainer']);
         if ((int) $post->author_id !== (int) $actor->id && !$isModerator) {
             throw new \DomainException('You cannot edit this post.');
         }
@@ -113,7 +113,7 @@ class PostService
 
     public function moderate(ForumPost $post, User $actor, array $data): ForumPost
     {
-        if (!$actor->hasAnyRole(['system_admin', 'trainer', 'facilitator'])) {
+        if (!$actor->hasAnyRole(['system_admin', 'trainer'])) {
             throw new \DomainException('Only moderators may change post state.');
         }
         $wasAccepted = $post->is_accepted_answer;

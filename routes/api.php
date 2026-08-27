@@ -158,9 +158,9 @@ Route::prefix('v1')->group(function () {
     });
 
     /* ============================================================
-     * LIVE SESSION HOSTING — Trainer + Facilitator + Admin (SRS 3.2 facilitator helps)
+     * LIVE SESSION HOSTING — Trainer + Admin (SRS 3.2)
      * ============================================================ */
-    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|facilitator|system_admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|system_admin'])->group(function () {
         Route::post('quizzes/{quiz:uuid}/host', [LiveQuizController::class, 'hostStart'])->name('quizzes.host.start');
 
         Route::prefix('sessions/{session:uuid}')->group(function () {
@@ -285,7 +285,7 @@ Route::prefix('v1')->group(function () {
      * ATTENDANCE MANAGEMENT (SRS Module 4)
      * ============================================================ */
     // Trainer manages sessions
-    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|facilitator|system_admin'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|system_admin'])->group(function () {
         Route::get('attendance-sessions', [\App\Http\Controllers\Api\V1\Attendance\AttendanceSessionController::class, 'index'])->name('attendance.sessions.index');
         Route::post('attendance-sessions', [\App\Http\Controllers\Api\V1\Attendance\AttendanceSessionController::class, 'store'])->name('attendance.sessions.store');
         Route::get('attendance-sessions/{session:uuid}', [\App\Http\Controllers\Api\V1\Attendance\AttendanceSessionController::class, 'show'])->name('attendance.sessions.show');
@@ -309,7 +309,7 @@ Route::prefix('v1')->group(function () {
     /* ============================================================
      * TRAINER-ONLY: my resources (SRS 3.2)
      * ============================================================ */
-    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|facilitator|system_admin'])->prefix('trainer')->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:trainer|system_admin'])->prefix('trainer')->group(function () {
         Route::get('my-quizzes', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'index'])->name('trainer.my-quizzes');
         Route::get('my-sessions', [\App\Http\Controllers\Api\V1\Trainer\MyQuizzesController::class, 'sessions'])->name('trainer.my-sessions');
         Route::get('my-students', [\App\Http\Controllers\Api\V1\Trainer\MyStudentsController::class, 'index'])->name('trainer.my-students');
