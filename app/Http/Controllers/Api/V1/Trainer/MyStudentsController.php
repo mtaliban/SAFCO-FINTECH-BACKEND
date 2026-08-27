@@ -22,7 +22,7 @@ class MyStudentsController extends Controller
         $query = Enrollment::whereHas('course', fn ($q) => $q->where('instructor_id', $trainer->id))
             ->with([
                 'user:id,uuid,email,username',
-                'user.profile:user_id,first_name,last_name,full_name,avatar_url',
+                'user.profile:user_id,first_name,last_name,full_name,profile_picture',
                 'course:id,uuid,title,slug',
             ]);
 
@@ -62,7 +62,7 @@ class MyStudentsController extends Controller
                     'name'       => $e->user?->profile?->full_name
                         ?? trim(($e->user?->profile?->first_name ?? '') . ' ' . ($e->user?->profile?->last_name ?? ''))
                         ?: ($e->user?->username ?? $e->user?->email),
-                    'avatar_url' => $e->user?->profile?->avatar_url,
+                    'avatar_url' => $e->user?->profile?->profile_picture,
                 ],
                 'course' => [
                     'uuid'  => $e->course?->uuid,
