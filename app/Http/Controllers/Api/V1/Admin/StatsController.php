@@ -35,14 +35,18 @@ class StatsController extends Controller
         $revenueTotal  = (int) $revQ->sum('total_tzs');
         $revenuePaidCount = (int) $revQ->count();
 
-        // Monthly revenue (last 6 months) for sparkline/bar chart
+        // Monthly revenue (last 6 months) — grouped in PHP so it works on MySQL and SQLite (tests)
         $monthlyRevenue = Invoice::where('status', 'paid')
-            ->selectRaw("DATE_FORMAT(paid_at, '%Y-%m') as month, SUM(total_tzs) as total, COUNT(*) as count")
             ->where('paid_at', '>=', now()->subMonths(6)->startOfMonth())
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get()
-            ->map(fn ($r) => ['month' => $r->month, 'total_tzs' => (int) $r->total, 'count' => (int) $r->count]);
+            ->get(['paid_at', 'total_tzs'])
+            ->groupBy(fn ($inv) => $inv->paid_at->format('Y-m'))
+            ->map(fn ($group, $month) => [
+                'month'     => $month,
+                'total_tzs' => (int) $group->sum('total_tzs'),
+                'count'     => $group->count(),
+            ])
+            ->sortKeys()
+            ->values();
 
         return $this->success([
             'users' => [
