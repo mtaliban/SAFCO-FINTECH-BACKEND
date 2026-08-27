@@ -299,8 +299,10 @@ class CorporateDashboardController extends Controller
             'employee' => [
                 'id' => $emp->uuid,
                 'email' => $emp->email,
-                'name' => trim(($emp->profile->first_name ?? '') . ' ' . ($emp->profile->last_name ?? '')) ?: $emp->email,
-                'department' => $emp->profile->department ?? null,
+                'name' => $emp->profile?->full_name
+                    ?? trim(($emp->profile?->first_name ?? '') . ' ' . ($emp->profile?->last_name ?? ''))
+                    ?: $emp->email,
+                'department' => $emp->profile?->department ?? null,
             ],
             'enrollments' => $enrollments,
             'attempts' => $attempts,
