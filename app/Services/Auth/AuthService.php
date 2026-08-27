@@ -35,15 +35,16 @@ class AuthService
     {
         return DB::transaction(function () use ($data) {
             $user = User::create([
-                'email' => $data['email'],
-                'phone' => $data['phone'] ?? null,
-                'password' => Hash::make($data['password']),
-                'organization_id' => $data['organization_id'] ?? null,
-                'status' => 'active',
-                'email_verified_at' => now(),
-                'auth_provider' => 'email',
-                'locale' => $data['locale'] ?? 'en',
-                'timezone' => $data['timezone'] ?? 'Africa/Dar_es_Salaam',
+                'email'             => $data['email'] ?? null,
+                'phone'             => $data['phone'] ?? null,
+                'password'          => Hash::make($data['password']),
+                'organization_id'   => $data['organization_id'] ?? null,
+                'status'            => 'active',
+                'email_verified_at' => isset($data['email']) ? now() : null,
+                'phone_verified_at' => isset($data['phone']) && !isset($data['email']) ? now() : null,
+                'auth_provider'     => 'email',
+                'locale'            => $data['locale'] ?? 'en',
+                'timezone'          => $data['timezone'] ?? 'Africa/Dar_es_Salaam',
             ]);
 
             UserProfile::create([

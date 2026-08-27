@@ -18,9 +18,9 @@ class RegisterRequest extends FormRequest
             'full_name' => ['required', 'string', 'max:255'],
             'first_name' => ['nullable', 'string', 'max:100'],
             'last_name' => ['nullable', 'string', 'max:100'],
-            // rfc-only email check (no DNS lookup — Docker networks often can't resolve external DNS)
-            'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
-            'phone' => ['nullable', 'string', 'max:20', 'unique:users,phone'],
+            // Either email or phone is required (SRS 3.1 — phone registration supported)
+            'email' => ['required_without:phone', 'nullable', 'email:rfc', 'max:255', 'unique:users,email'],
+            'phone' => ['required_without:email', 'nullable', 'string', 'max:20', 'unique:users,phone'],
             'password' => ['required', 'confirmed', Password::defaults()],
             'gender' => ['nullable', 'in:male,female,other,prefer_not_to_say'],
             'position' => ['nullable', 'string', 'max:100'],
