@@ -40,11 +40,11 @@ done
 # Export image reference so docker-compose picks up the right tag.
 export DOCKER_IMAGE IMAGE_TAG
 
-# Aggressive disk cleanup before pulling new image.
-# On small EC2 instances the disk fills up with old layers quickly.
+# Stop running containers so their images become unused and can be pruned,
+# then run aggressive cleanup to free disk space before pulling the new image.
 echo "==> Pre-deploy cleanup (free disk space) ..."
-$DOCKER system prune -af --volumes 2>/dev/null || true
-$DOCKER volume prune -f 2>/dev/null || true
+$DOCKER compose -f "${COMPOSE_FILE}" down --remove-orphans 2>/dev/null || true
+$DOCKER system prune -af 2>/dev/null || true
 
 echo "==> Pulling image ${DOCKER_IMAGE}:${IMAGE_TAG} + latest ..."
 $DOCKER compose -f "${COMPOSE_FILE}" pull app worker reverb scheduler
