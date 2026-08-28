@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             DemoAccountsSeeder::class,
             SystemSettingsSeeder::class,
+            RealCoursesSeeder::class,
         ]);
     }
 }

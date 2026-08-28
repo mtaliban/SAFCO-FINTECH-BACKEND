@@ -81,6 +81,9 @@ $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=Adm
 echo "==> Seeding demo accounts — all 5 roles (idempotent) ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=DemoAccountsSeeder --force
 
+echo "==> Seeding 5 professional courses (idempotent) ..."
+$DOCKER compose -f "${COMPOSE_FILE}" exec -T app php artisan db:seed --class=RealCoursesSeeder --force
+
 echo "==> Ensuring storage permissions ..."
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 $DOCKER compose -f "${COMPOSE_FILE}" exec -T app chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache
