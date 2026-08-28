@@ -110,9 +110,25 @@ class AuthApiTest extends TestCase
     {
         $user = $this->makeUser();
 
-        $res = $this->postJson('/api/v1/auth/login', [
+        // Step 1: credentials → OTP pending (two-step flow)
+        $step1 = $this->postJson('/api/v1/auth/login', [
             'identifier' => $user->email,
             'password'   => 'Password123!',
+        ]);
+
+        $step1->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.otp_sent', true);
+
+        // Step 2: fetch OTP code from DB (Mail::fake() stops delivery but record is saved)
+        $otp = \App\Models\OtpCode::where('identifier', $user->email)
+            ->where('type', 'login')
+            ->latest()
+            ->first();
+
+        $res = $this->postJson('/api/v1/auth/login/verify', [
+            'email' => $user->email,
+            'code'  => $otp->code,
         ]);
 
         $res->assertOk()
