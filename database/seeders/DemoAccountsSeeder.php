@@ -40,9 +40,9 @@ class DemoAccountsSeeder extends Seeder
 
         // Corporate Client — Bank of Tanzania rep (per SRS)
         $corporate = User::updateOrCreate(
-            ['email' => 'admin@bot.go.tz'],
+            ['email' => 'selemanindwata61@gmail.com'],
             [
-                'password' => Hash::make('Corporate@2026!'),
+                'password' => Hash::make('12345678'),
                 'organization_id' => $bot?->id,
                 'status' => 'active',
                 'email_verified_at' => now(),

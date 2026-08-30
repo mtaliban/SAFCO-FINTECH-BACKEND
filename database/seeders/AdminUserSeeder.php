@@ -15,9 +15,9 @@ class AdminUserSeeder extends Seeder
         $safco = Organization::where('name', 'SAFCO FINTECH LTD')->first();
 
         $admin = User::firstOrCreate(
-            ['email' => 'admin@safcofintech.co.tz'],
+            ['email' => 'hamisindwata300@gmail.com'],
             [
-                'password' => Hash::make('Admin@2026!'),
+                'password' => Hash::make('12345678'),
                 'organization_id' => $safco?->id,
                 'status' => 'active',
                 'email_verified_at' => now(),
