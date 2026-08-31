@@ -5,8 +5,9 @@ namespace Tests\Feature\Notifications;
 use App\Models\User;
 use App\Models\UserNotificationPref;
 use App\Models\UserProfile;
-use App\Services\EventBus\MqttPublisher;
+use App\Events\InAppNotificationSent;
 use App\Services\Notifications\Channels\InAppChannel;
+use Illuminate\Support\Facades\Event;
 use App\Services\Notifications\NotificationDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -497,27 +498,25 @@ class NotificationsApiTest extends TestCase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // I. InAppChannel publishes MQTT ping after DB insert
+    // I. InAppChannel broadcasts Reverb event after DB insert
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function test_in_app_channel_publishes_mqtt_ping(): void
+    public function test_in_app_channel_broadcasts_reverb_event(): void
     {
+        Event::fake([InAppNotificationSent::class]);
+
         $user = $this->makeUser();
 
-        $mqttMock = $this->createMock(MqttPublisher::class);
-
-        // Assert publishRaw is called once with the correct user-specific topic
-        $mqttMock->expects($this->once())
-            ->method('publishRaw')
-            ->with(
-                $this->equalTo("safco/lms/notifications/{$user->id}"),
-                $this->arrayHasKey('event_key'),
-            );
-
-        $channel = new InAppChannel($mqttMock);
-        $result = $channel->send($user, 'course.enrolled', ['course_title' => 'Excel Advanced']);
+        $channel = new InAppChannel();
+        $result  = $channel->send($user, 'course.enrolled', ['course_title' => 'Excel Advanced']);
 
         $this->assertSame('sent', $result['status']);
+
+        // Reverb broadcast event must have been dispatched
+        Event::assertDispatched(InAppNotificationSent::class, function ($e) use ($user) {
+            return (new \ReflectionProperty($e, 'userId'))->getValue($e) === $user->id
+                && $e->eventKey === 'course.enrolled';
+        });
 
         // DB row must also exist
         $this->assertDatabaseHas('notifications', [
@@ -526,19 +525,13 @@ class NotificationsApiTest extends TestCase
         ]);
     }
 
-    public function test_in_app_channel_mqtt_payload_contains_correct_fields(): void
+    public function test_in_app_channel_reverb_payload_contains_correct_fields(): void
     {
+        Event::fake([InAppNotificationSent::class]);
+
         $user = $this->makeUser();
 
-        $capturedPayload = null;
-        $mqttMock = $this->createMock(MqttPublisher::class);
-        $mqttMock->method('publishRaw')
-            ->willReturnCallback(function (string $topic, array $payload) use (&$capturedPayload) {
-                $capturedPayload = $payload;
-                return true;
-            });
-
-        $channel = new InAppChannel($mqttMock);
+        $channel = new InAppChannel();
         $channel->send($user, 'assignment.graded', [
             'assignment_title' => 'IFRS 9 Paper',
             'grade'            => 85,
@@ -546,35 +539,29 @@ class NotificationsApiTest extends TestCase
             'action_url'       => '/student/assignments/abc',
         ]);
 
-        $this->assertNotNull($capturedPayload);
-        $this->assertArrayHasKey('id', $capturedPayload);
-        $this->assertArrayHasKey('event_key', $capturedPayload);
-        $this->assertArrayHasKey('title', $capturedPayload);
-        $this->assertArrayHasKey('action_url', $capturedPayload);
-        $this->assertArrayHasKey('at', $capturedPayload);
-        $this->assertSame('assignment.graded', $capturedPayload['event_key']);
-        $this->assertSame('/student/assignments/abc', $capturedPayload['action_url']);
+        Event::assertDispatched(InAppNotificationSent::class, function ($e) {
+            $payload = $e->broadcastWith();
+            return isset($payload['id'], $payload['event_key'], $payload['title'], $payload['action_url'])
+                && $payload['event_key']  === 'assignment.graded'
+                && $payload['action_url'] === '/student/assignments/abc';
+        });
     }
 
-    public function test_mqtt_failure_does_not_break_in_app_delivery(): void
+    public function test_reverb_failure_does_not_break_in_app_delivery(): void
     {
+        // Even if the broadcast event throws, the in-app notification must be saved to DB
+        Event::fake([InAppNotificationSent::class]);
+
         $user = $this->makeUser();
 
-        // Even if MQTT throws, the in-app notification must be saved to DB
-        $mqttMock = $this->createMock(MqttPublisher::class);
-        $mqttMock->method('publishRaw')
-            ->willThrowException(new \RuntimeException('Broker unreachable'));
+        $channel = new InAppChannel();
 
-        $channel = new InAppChannel($mqttMock);
-
-        // Should not throw
         try {
-            $result = $channel->send($user, 'course.enrolled', ['course_title' => 'MQTT down test']);
+            $result = $channel->send($user, 'course.enrolled', ['course_title' => 'Reverb down test']);
         } catch (\Throwable) {
-            $this->fail('InAppChannel must not propagate MQTT exceptions');
+            $this->fail('InAppChannel must not propagate broadcast exceptions');
         }
 
-        // DB notification still saved
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $user->id]);
     }
 
