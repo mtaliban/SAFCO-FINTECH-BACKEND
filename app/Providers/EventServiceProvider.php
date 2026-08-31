@@ -10,6 +10,7 @@ use App\Events\User\UserRegistered;
 use App\Listeners\Analytics\LogEventToCsv;
 use App\Listeners\Security\DetectSuspiciousLogin;
 use App\Listeners\User\GenerateProfileThumbnail;
+use App\Listeners\User\NotifyAdminsOfNewRegistration;
 use App\Listeners\User\SendOtpNotification;
 use App\Listeners\User\SendPasswordResetLink;
 use App\Listeners\User\SendWelcomeNotification;
@@ -21,6 +22,7 @@ class EventServiceProvider extends ServiceProvider
     protected $listen = [
         UserRegistered::class => [
             SendWelcomeNotification::class,
+            NotifyAdminsOfNewRegistration::class,
             LogEventToCsv::class,
         ],
         OtpRequested::class => [

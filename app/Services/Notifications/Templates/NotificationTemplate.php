@@ -110,6 +110,22 @@ class NotificationTemplate
                 'subject' => $payload['title'] ?? "Announcement kutoka {$appName}",
                 'body' => $payload['body'] ?? '',
             ],
+            'course.submitted_for_approval' => [
+                'subject' => "Course mpya inasubiri ukaguzi: " . ($payload['course_title'] ?? '—'),
+                'body' => "Habari {$name},\n\nTrainer " . ($payload['trainer_name'] ?? '—') . " ametuma course \"" . ($payload['course_title'] ?? '—') . "\" kwa ukaguzi.\n\nAngalia na uiapprove au uikatalie.",
+            ],
+            'course.approved' => [
+                'subject' => "✅ Course yako imepublished: " . ($payload['course_title'] ?? '—'),
+                'body' => "Hongera {$name}!\n\nCourse yako \"" . ($payload['course_title'] ?? '—') . "\" imekaguliwa na admin na sasa ipo live. Wanafunzi wanaweza kujiandikisha.",
+            ],
+            'course.rejected' => [
+                'subject' => "❌ Course imekataliwa: " . ($payload['course_title'] ?? '—'),
+                'body' => "Habari {$name},\n\nCourse yako \"" . ($payload['course_title'] ?? '—') . "\" imekataliwa.\n\nSababu: " . ($payload['reason'] ?? '—') . "\n\nUnaweza kuhariri na kutuma tena.",
+            ],
+            'user.new_registration' => [
+                'subject' => "Mtumiaji mpya amesajiliwa: " . ($payload['user_name'] ?? '—'),
+                'body' => "Habari {$name},\n\nMtumiaji mpya amesajiliwa kwenye mfumo:\n\nJina: " . ($payload['user_name'] ?? '—') . "\nEmail: " . ($payload['user_email'] ?? '—') . "\nRoles: " . ($payload['roles'] ?? 'student') . "\nWakati: " . ($payload['registered_at'] ?? now()->toDateTimeString()),
+            ],
             default => [
                 'subject' => $appName,
                 'body' => 'Notification: ' . $eventKey,

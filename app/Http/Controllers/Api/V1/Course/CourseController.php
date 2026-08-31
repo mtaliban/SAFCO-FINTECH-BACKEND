@@ -172,13 +172,29 @@ class CourseController extends Controller
     public function submit(Course $course, Request $request): JsonResponse
     {
         $this->authorizeOwnerOrAdmin($course, $request);
-        if ($course->status !== 'draft') {
+        if (!in_array($course->status, ['draft', 'rejected'])) {
             return $this->error("Course is {$course->status}, not draft.", 422);
         }
         if ($course->modules()->count() === 0) {
             return $this->error('Add at least one module before submitting.', 422);
         }
         $course->update(['status' => 'pending_approval']);
+
+        // Notify all system_admins in-app
+        try {
+            $inApp = app(\App\Services\Notifications\Channels\InAppChannel::class);
+            $trainer = $request->user();
+            $admins = \App\Models\User::role('system_admin')->get();
+            foreach ($admins as $admin) {
+                $inApp->send($admin, 'course.submitted_for_approval', [
+                    'course_title' => $course->title,
+                    'trainer_name' => $trainer->profile?->full_name ?? $trainer->email,
+                    'action_url'   => '/admin/course-approvals',
+                    'action_label' => 'Kagua Course',
+                ]);
+            }
+        } catch (\Throwable) {}
+
         return $this->success($this->transform($course->fresh()), 'Submitted for approval');
     }
 
