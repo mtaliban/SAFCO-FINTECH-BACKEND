@@ -52,6 +52,11 @@ Route::prefix('v1')->group(function () {
     /* ============================================================
      * AUTHENTICATED ENDPOINTS (Sanctum required)
      * ============================================================ */
+    // Reverb channel auth — Echo POSTs here with Bearer token to authorise private channels
+    Route::post('broadcasting/auth', function (\Illuminate\Http\Request $request) {
+        return \Illuminate\Support\Facades\Broadcast::auth($request);
+    })->middleware('auth:sanctum')->name('broadcasting.auth');
+
     Route::middleware(['auth:sanctum', 'active.user'])->group(function () {
 
         // Session management

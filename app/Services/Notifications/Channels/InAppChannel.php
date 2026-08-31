@@ -2,8 +2,8 @@
 
 namespace App\Services\Notifications\Channels;
 
+use App\Events\InAppNotificationSent;
 use App\Models\User;
-use App\Services\EventBus\MqttPublisher;
 use App\Services\Notifications\Templates\NotificationTemplate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
  */
 class InAppChannel implements ChannelContract
 {
-    public function __construct(private readonly MqttPublisher $mqtt) {}
+    public function __construct() {}
 
     public function key(): string { return 'in_app'; }
 
@@ -45,24 +45,21 @@ class InAppChannel implements ChannelContract
             'updated_at' => now(),
         ]);
 
-        // Real-time ping — frontend MQTT subscriber invalidates its query cache
-        // instantly so the bell badge and inbox update without waiting for a poll.
-        // MQTT failure is intentionally non-fatal: the DB record already exists,
-        // the 60s polling fallback will surface it to the user regardless.
+        // Real-time push via Laravel Reverb WebSocket.
+        // ShouldBroadcastNow means it fires immediately (not queued).
+        // Failure is non-fatal — the DB record already exists and the 15s
+        // polling fallback will surface the notification regardless.
         try {
-            $this->mqtt->publishRaw(
-                topic:   "safco/lms/notifications/{$user->id}",
-                payload: [
-                    'id'         => $id,
-                    'event_key'  => $eventKey,
-                    'title'      => $render['subject'],
-                    'body'       => \Str::limit(strip_tags($render['html']), 200),
-                    'action_url' => $payload['action_url'] ?? null,
-                    'at'         => now()->toIso8601String(),
-                ],
-            );
+            broadcast(new InAppNotificationSent(
+                userId:    $user->id,
+                id:        $id,
+                eventKey:  $eventKey,
+                title:     $render['subject'],
+                body:      \Str::limit(strip_tags($render['html']), 200),
+                actionUrl: $payload['action_url'] ?? null,
+            ));
         } catch (\Throwable $e) {
-            Log::warning('[notifications] MQTT ping failed — falling back to poll', [
+            Log::warning('[notifications] Reverb broadcast failed — falling back to poll', [
                 'user_id'   => $user->id,
                 'event_key' => $eventKey,
                 'error'     => $e->getMessage(),
