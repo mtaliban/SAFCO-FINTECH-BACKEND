@@ -29,7 +29,7 @@ use Tests\TestCase;
  *  F. Inbox limit param is honoured
  *  G. GET  /notifications/preferences  — returns full matrix
  *  H. PUT  /notifications/preferences  — persists toggle, critical silently ignored
- *  I. InAppChannel publishes MQTT ping after DB insert
+ *  I. InAppChannel broadcasts Reverb event after DB insert
  *  J. Unauthenticated requests → 401
  *  K. Inbox pagination / limit
  *  L. Concurrent mark-all + delete does not 500
@@ -45,13 +45,7 @@ class NotificationsApiTest extends TestCase
             Role::firstOrCreate(['name' => $r, 'guard_name' => 'web']);
         }
         Mail::fake();
-
-        // Bind a mock MqttPublisher so tests don't hit the real broker.
-        // Individual tests that want to assert publishRaw calls can override this.
-        $mock = $this->createMock(MqttPublisher::class);
-        $mock->method('publishRaw')->willReturn(true);
-        $mock->method('publish')->willReturn(true);
-        $this->app->instance(MqttPublisher::class, $mock);
+        Event::fake([InAppNotificationSent::class]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
