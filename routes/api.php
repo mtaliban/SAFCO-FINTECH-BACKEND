@@ -275,16 +275,16 @@ Route::prefix('v1')->group(function () {
         Route::get('download/submission/{submission:uuid}', [\App\Http\Controllers\Api\V1\Course\AssignmentController::class, 'downloadSubmission'])
             ->name('submissions.file.download');
     });
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client|system_admin'])->group(function () {
         Route::post('assignments/{assignment:uuid}/submit', [\App\Http\Controllers\Api\V1\Course\AssignmentController::class, 'submit'])->name('assignments.submit');
     });
 
     // Student — enroll + track progress
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client|system_admin'])->group(function () {
         Route::post('courses/{course:uuid}/enroll', [\App\Http\Controllers\Api\V1\Course\EnrollmentController::class, 'enroll'])->name('courses.enroll');
         Route::post('lessons/{lesson:uuid}/mark-complete', [\App\Http\Controllers\Api\V1\Course\EnrollmentController::class, 'markLessonComplete'])->name('lessons.mark-complete');
     });
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student'])->prefix('student')->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|system_admin'])->prefix('student')->group(function () {
         Route::get('my-enrollments', [\App\Http\Controllers\Api\V1\Course\EnrollmentController::class, 'myEnrollments'])->name('student.my-enrollments');
     });
 
@@ -309,7 +309,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Student self check-in via QR
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client|system_admin'])->group(function () {
         Route::post('attendance/check-in', [\App\Http\Controllers\Api\V1\Attendance\AttendanceRecordController::class, 'checkIn'])->name('attendance.check-in');
     });
 
@@ -330,7 +330,7 @@ Route::prefix('v1')->group(function () {
     /* ============================================================
      * STUDENT-ONLY: my learning (SRS 3.3)
      * ============================================================ */
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student'])->prefix('student')->group(function () {
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|system_admin'])->prefix('student')->group(function () {
         Route::get('my-attempts', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'myAttempts'])->name('student.attempts');
         Route::get('available-quizzes', [\App\Http\Controllers\Api\V1\Student\MyLearningController::class, 'available'])->name('student.available');
         Route::get('exams', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'availableExams'])->name('student.exams');

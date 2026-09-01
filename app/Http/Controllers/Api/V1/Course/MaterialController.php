@@ -151,6 +151,10 @@ class MaterialController extends Controller
 
         $url = $material->url;
 
+        if (!$url) {
+            return $this->error('Material has no source URL.', 404);
+        }
+
         // S3 / external URL — redirect; S3 supports Range requests natively so
         // the browser <video> element can seek without any proxy logic here.
         if (str_starts_with($url, 'https://') || str_starts_with($url, 'http://')) {

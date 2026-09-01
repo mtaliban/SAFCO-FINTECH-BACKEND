@@ -255,13 +255,13 @@ class CourseController extends Controller
      * Generate a signed S3 URL for private objects, cached for 23 h so list pages
      * don't hammer the S3 API. Falls back to the raw URL if signing is unsupported.
      */
-    private function signedUrl(?string $url): ?string
+    private function signedUrl(?string $url, string $disposition = 'inline'): ?string
     {
         if (!$url) return null;
         if (!str_starts_with($url, 'https://') && !str_starts_with($url, 'http://')) return $url;
 
-        $cacheKey = 'signed_url_' . md5($url);
-        return Cache::remember($cacheKey, now()->addHours(23), function () use ($url) {
+        $cacheKey = 'signed_url_' . md5($url . $disposition);
+        return Cache::remember($cacheKey, now()->addHours(23), function () use ($url, $disposition) {
             try {
                 $disk = config('filesystems.default', 's3');
                 $bucket = config('filesystems.disks.s3.bucket', '');
@@ -278,7 +278,9 @@ class CourseController extends Controller
                     }
                 }
                 if (!$path) return $url;
-                return Storage::disk($disk)->temporaryUrl($path, now()->addDay());
+                return Storage::disk($disk)->temporaryUrl($path, now()->addDay(), [
+                    'ResponseContentDisposition' => $disposition,
+                ]);
             } catch (\Throwable) {
                 return $url;
             }
@@ -377,16 +379,23 @@ class CourseController extends Controller
                         'thumbnail_url'    => $mat->thumbnail_url,
                         'duration_seconds' => $mat->duration_seconds,
                         'page_count'       => $mat->page_count,
-                        // Streaming proxy endpoint — same logic as MaterialController.
-                        // YouTube/Vimeo are embedded directly so they don't need a stream_url.
+                        // Streaming proxy endpoint — YouTube/Vimeo embedded directly; others go through stream proxy.
                         'stream_url' => (!str_starts_with($mat->url ?? '', 'https://www.youtube')
                                         && !str_starts_with($mat->url ?? '', 'https://player.vimeo')
                                         && !str_starts_with($mat->url ?? '', 'https://vimeo.com'))
                             ? "/v1/materials/{$mat->uuid}/stream"
                             : null,
-                        // Pre-signed S3 URL for Microsoft Office Online viewer.
-                        'office_viewer_url' => in_array($mat->type, ['document_word', 'document_excel', 'document_powerpoint'])
-                            ? $this->signedUrl($mat->url)
+                        // Direct pre-signed S3 URL — bypasses stream proxy entirely.
+                        // Used by: <video> for MP4, <iframe> for PDF, Microsoft Office viewer for Office docs.
+                        // Only set for S3-stored files (url starts with http).
+                        'direct_url' => (!str_starts_with($mat->url ?? '', 'https://www.youtube')
+                                        && !str_starts_with($mat->url ?? '', 'https://player.vimeo')
+                                        && !str_starts_with($mat->url ?? '', 'https://vimeo.com'))
+                            ? $this->signedUrl($mat->url, 'inline')
+                            : null,
+                        // Pre-signed S3 URL for document viewers (kept for backward compat).
+                        'office_viewer_url' => in_array($mat->type, ['document_pdf', 'document_word', 'document_excel', 'document_powerpoint'])
+                            ? $this->signedUrl($mat->url, 'inline')
                             : null,
                     ]),
                 ]),
