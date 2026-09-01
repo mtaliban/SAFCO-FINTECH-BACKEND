@@ -364,18 +364,27 @@ class CourseController extends Controller
                         ] : null,
                     ]),
                     'materials' => $l->materials->map(fn ($mat) => [
-                        'uuid' => $mat->uuid,
-                        'type' => $mat->type,
-                        'category' => $mat->category,
-                        'title' => $mat->title,
-                        'description' => $mat->description,
-                        'url' => $mat->url,
-                        'mime_type' => $mat->mime_type,
-                        'file_size' => $mat->file_size,
-                        'position' => $mat->position,
-                        'metadata' => $mat->metadata,
-                        // Pre-signed S3 URL (23h cached) for Microsoft Office Online viewer.
-                        // Viewer fetches the file server-side so it bypasses our auth middleware.
+                        'uuid'             => $mat->uuid,
+                        'type'             => $mat->type,
+                        'category'         => $mat->category,
+                        'title'            => $mat->title,
+                        'description'      => $mat->description,
+                        'url'              => $mat->url,
+                        'mime_type'        => $mat->mime_type,
+                        'file_size'        => $mat->file_size,
+                        'position'         => $mat->position,
+                        'metadata'         => $mat->metadata,
+                        'thumbnail_url'    => $mat->thumbnail_url,
+                        'duration_seconds' => $mat->duration_seconds,
+                        'page_count'       => $mat->page_count,
+                        // Streaming proxy endpoint — same logic as MaterialController.
+                        // YouTube/Vimeo are embedded directly so they don't need a stream_url.
+                        'stream_url' => (!str_starts_with($mat->url ?? '', 'https://www.youtube')
+                                        && !str_starts_with($mat->url ?? '', 'https://player.vimeo')
+                                        && !str_starts_with($mat->url ?? '', 'https://vimeo.com'))
+                            ? "/v1/materials/{$mat->uuid}/stream"
+                            : null,
+                        // Pre-signed S3 URL for Microsoft Office Online viewer.
                         'office_viewer_url' => in_array($mat->type, ['document_word', 'document_excel', 'document_powerpoint'])
                             ? $this->signedUrl($mat->url)
                             : null,
