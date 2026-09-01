@@ -7,6 +7,8 @@ use App\Models\Course;
 use App\Services\Notifications\Channels\InAppChannel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * SRS 3.1 System Administrator "Approve courses".
@@ -33,7 +35,7 @@ class CourseApprovalController extends Controller
                 'category'       => $c->category,
                 'level'          => $c->level,
                 'duration_hours' => $c->duration_hours,
-                'thumbnail_url'  => $c->thumbnail_url,
+                'thumbnail_url'  => $this->signedUrl($c->thumbnail_url),
                 'instructor'     => ['email' => $c->instructor?->email, 'name' => $c->instructor?->profile?->full_name],
                 'modules_count'  => $c->modules_count,
                 'submitted_at'   => $c->updated_at?->toIso8601String(),
@@ -69,7 +71,7 @@ class CourseApprovalController extends Controller
                 'category'         => $c->category,
                 'level'            => $c->level,
                 'status'           => $c->status,
-                'thumbnail_url'    => $c->thumbnail_url,
+                'thumbnail_url'    => $this->signedUrl($c->thumbnail_url),
                 'duration_hours'   => $c->duration_hours,
                 'instructor'       => [
                     'email' => $c->instructor?->email,
@@ -91,6 +93,35 @@ class CourseApprovalController extends Controller
                 'total'        => $courses->total(),
             ],
         ]);
+    }
+
+    /** Generate a 24-hour presigned S3 URL (mirrors CourseController::signedUrl). */
+    private function signedUrl(?string $url): ?string
+    {
+        if (!$url) return null;
+        if (!str_starts_with($url, 'https://') && !str_starts_with($url, 'http://')) return $url;
+
+        return Cache::remember('signed_url_' . md5($url), now()->addHours(23), function () use ($url) {
+            try {
+                $bucket = config('filesystems.disks.s3.bucket', '');
+                $region = config('filesystems.disks.s3.region', '');
+                $path   = null;
+                foreach ([
+                    "https://{$bucket}.s3.{$region}.amazonaws.com/",
+                    "https://{$bucket}.s3.amazonaws.com/",
+                    "https://s3.{$region}.amazonaws.com/{$bucket}/",
+                ] as $prefix) {
+                    if (str_starts_with($url, $prefix)) {
+                        $path = urldecode(substr($url, strlen($prefix)));
+                        break;
+                    }
+                }
+                if (!$path) return $url;
+                return Storage::disk(config('filesystems.default', 's3'))->temporaryUrl($path, now()->addDay());
+            } catch (\Throwable) {
+                return $url;
+            }
+        });
     }
 
     /** POST /api/v1/admin/courses/{course:uuid}/approve */
