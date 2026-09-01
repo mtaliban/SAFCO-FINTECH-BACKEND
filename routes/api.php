@@ -189,6 +189,7 @@ Route::prefix('v1')->group(function () {
 
         // Course approvals (SRS 3.1)
         Route::get('course-approvals', [\App\Http\Controllers\Api\V1\Admin\CourseApprovalController::class, 'pending'])->name('admin.course-approvals');
+        Route::get('course-approvals/history', [\App\Http\Controllers\Api\V1\Admin\CourseApprovalController::class, 'history'])->name('admin.course-approvals.history');
         Route::post('courses/{course:uuid}/approve', [\App\Http\Controllers\Api\V1\Admin\CourseApprovalController::class, 'approve'])->name('admin.courses.approve');
         Route::post('courses/{course:uuid}/reject', [\App\Http\Controllers\Api\V1\Admin\CourseApprovalController::class, 'reject'])->name('admin.courses.reject');
     });

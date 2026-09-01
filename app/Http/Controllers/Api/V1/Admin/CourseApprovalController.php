@@ -48,6 +48,51 @@ class CourseApprovalController extends Controller
         ]);
     }
 
+    /** GET /api/v1/admin/course-approvals/history — approved / rejected courses */
+    public function history(Request $request): JsonResponse
+    {
+        $courses = Course::with([
+            'instructor:id,uuid,email',
+            'instructor.profile:user_id,full_name',
+            'approver:id,uuid,email',
+            'approver.profile:user_id,full_name',
+        ])
+            ->withCount('modules')
+            ->whereIn('status', ['published', 'rejected', 'archived'])
+            ->latest('updated_at')
+            ->paginate((int) $request->query('per_page', 30));
+
+        return $this->success([
+            'data' => $courses->getCollection()->map(fn ($c) => [
+                'uuid'             => $c->uuid,
+                'title'            => $c->title,
+                'category'         => $c->category,
+                'level'            => $c->level,
+                'status'           => $c->status,
+                'thumbnail_url'    => $c->thumbnail_url,
+                'duration_hours'   => $c->duration_hours,
+                'instructor'       => [
+                    'email' => $c->instructor?->email,
+                    'name'  => $c->instructor?->profile?->full_name,
+                ],
+                'approver'         => [
+                    'email' => $c->approver?->email,
+                    'name'  => $c->approver?->profile?->full_name,
+                ],
+                'rejection_reason' => $c->rejection_reason,
+                'approved_at'      => $c->approved_at?->toIso8601String(),
+                'stats'            => ['modules' => $c->modules_count],
+                'updated_at'       => $c->updated_at?->toIso8601String(),
+            ]),
+            'meta' => [
+                'current_page' => $courses->currentPage(),
+                'last_page'    => $courses->lastPage(),
+                'per_page'     => $courses->perPage(),
+                'total'        => $courses->total(),
+            ],
+        ]);
+    }
+
     /** POST /api/v1/admin/courses/{course:uuid}/approve */
     public function approve(Course $course, Request $request): JsonResponse
     {
