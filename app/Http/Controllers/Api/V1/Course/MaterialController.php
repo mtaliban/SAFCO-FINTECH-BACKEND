@@ -145,14 +145,15 @@ class MaterialController extends Controller
      */
     public function stream(LessonMaterial $material, Request $request): StreamedResponse|JsonResponse
     {
-        if ($material->processing_status !== 'ready') {
-            return $this->error('Material still processing.', 425);
-        }
-
         $url = $material->url;
 
         if (!$url) {
             return $this->error('Material has no source URL.', 404);
+        }
+
+        // Block only explicitly failed materials — pending/processing still serve if URL exists.
+        if ($material->processing_status === 'failed') {
+            return $this->error('Material processing failed.', 422);
         }
 
         // S3 / external URL — redirect; S3 supports Range requests natively so
