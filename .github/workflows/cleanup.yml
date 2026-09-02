@@ -28,26 +28,27 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Fix containerd + free disk space
+      - name: Fix containerd + pull missing images + free disk
         run: |
           ssh "$EC2_USER@$EC2_HOST" << 'SSHEOF'
             echo "=== Disk before ==="
             df -h /
 
-            echo "=== Running containers ==="
-            sudo docker ps --format "{{.Names}} {{.Image}}"
-
             echo "=== Restart containerd to clear corrupt snapshots ==="
             sudo systemctl restart containerd
             sleep 5
             sudo systemctl restart docker
-            sleep 5
+            sleep 8
 
-            echo "=== Remove ONLY dangling images (keeps images in use) ==="
-            sudo docker image prune -f
+            echo "=== Pull back mysql + redis if missing ==="
+            sudo docker image inspect mysql:8.0 >/dev/null 2>&1 || sudo docker pull mysql:8.0
+            sudo docker image inspect redis:7-alpine >/dev/null 2>&1 || sudo docker pull redis:7-alpine
 
             echo "=== Remove old safco-backend sha- images (keep latest 2) ==="
             sudo docker images mtalibani/safco-backend --format "{{.ID}} {{.Tag}}" | grep "sha-" | tail -n +3 | awk '{print $1}' | xargs -r sudo docker rmi -f 2>/dev/null || true
+
+            echo "=== Remove only dangling layers ==="
+            sudo docker image prune -f
 
             echo "=== Journal + apt cache ==="
             sudo journalctl --vacuum-size=30M 2>/dev/null || true
@@ -56,6 +57,6 @@ jobs:
             echo "=== Disk after ==="
             df -h /
 
-            echo "=== Running containers after ==="
+            echo "=== Running containers ==="
             sudo docker ps --format "{{.Names}} {{.Status}}"
           SSHEOF

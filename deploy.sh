@@ -40,14 +40,15 @@ done
 # Export image reference so docker-compose picks up the right tag.
 export DOCKER_IMAGE IMAGE_TAG
 
-# Stop running containers so their images become unused and can be pruned,
-# then run aggressive cleanup to free disk space before pulling the new image.
-echo "==> Pre-deploy cleanup (free disk space) ..."
-$DOCKER compose -f "${COMPOSE_FILE}" down --remove-orphans 2>/dev/null || true
-$DOCKER system prune -af 2>/dev/null || true
+# Only remove old sha- tagged app images (keep latest 2) + dangling layers.
+# Never prune mysql/redis images — they are large and expensive to re-pull.
+echo "==> Pre-deploy cleanup (remove old app sha- images only) ..."
+$DOCKER images mtalibani/safco-backend --format "{{.ID}} {{.Tag}}" | grep "sha-" | tail -n +3 | awk '{print $1}' | xargs -r $DOCKER rmi -f 2>/dev/null || true
+$DOCKER image prune -f 2>/dev/null || true
 
-echo "==> Pulling image ${DOCKER_IMAGE}:${IMAGE_TAG} + latest ..."
-$DOCKER compose -f "${COMPOSE_FILE}" pull app worker reverb scheduler
+echo "==> Pulling new app image ${DOCKER_IMAGE}:${IMAGE_TAG} ..."
+$DOCKER pull "${DOCKER_IMAGE}:${IMAGE_TAG}"
+$DOCKER pull "${DOCKER_IMAGE}:latest"
 
 echo "==> Bringing up stack (rolling restart) ..."
 $DOCKER compose -f "${COMPOSE_FILE}" up -d --remove-orphans
