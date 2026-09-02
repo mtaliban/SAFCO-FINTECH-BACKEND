@@ -1,0 +1,52 @@
+name: Cleanup EC2 Disk
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup.yml'
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_USER: ${{ secrets.EC2_USER }}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        env:
+          KEY_RAW: ${{ secrets.EC2_SSH_KEY }}
+          KEY_B64: ${{ secrets.EC2_SSH_KEY_B64 }}
+        run: |
+          mkdir -p ~/.ssh
+          if [ -n "$KEY_B64" ]; then
+            printf '%s' "$KEY_B64" | tr -d '[:space:]' | base64 -d > ~/.ssh/id_rsa
+          else
+            printf '%s\n' "$KEY_RAW" | tr -d '\r' > ~/.ssh/id_rsa
+          fi
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Free disk space on EC2
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" << 'SSHEOF'
+            echo "=== Disk before ==="
+            df -h /
+
+            echo "=== Docker system prune ==="
+            sudo docker system prune -af --volumes
+
+            echo "=== Remove old images (keep latest + running) ==="
+            KEEP=$(sudo docker ps -q | xargs -r sudo docker inspect --format='{{range .Image}}{{.}}{{end}}' 2>/dev/null | sort -u)
+            sudo docker images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" | sort -k3 -r | tail -n +6 | awk '{print $1}' | xargs -r sudo docker rmi -f 2>/dev/null || true
+
+            echo "=== Journal logs cleanup ==="
+            sudo journalctl --vacuum-size=50M 2>/dev/null || true
+
+            echo "=== APT cache cleanup ==="
+            sudo apt-get clean 2>/dev/null || true
+
+            echo "=== Disk after ==="
+            df -h /
+          SSHEOF
