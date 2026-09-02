@@ -71,14 +71,11 @@ jobs:
             TOKEN=$(echo "$VERIFY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('token','NO_TOKEN'))" 2>/dev/null)
             echo "Token: ${TOKEN:0:25}..."
 
-            echo "=== Step 4: AI Generate Questions ==="
-            AI_RESP=$(curl -s -X POST http://localhost:8000/api/v1/ai/generate-questions \
+            echo "=== Step 4: AI Generate Questions (FULL RESPONSE) ==="
+            curl -s -X POST http://localhost:8000/api/v1/ai/generate-questions \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}')
-            echo "$AI_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); qs=d.get('data',{}).get('questions',[]); [print('AI INAFANYA KAZI! Questions: '+str(len(qs))), [print('  Q'+str(i+1)+': '+q.get('text','')[:80]) for i,q in enumerate(qs)]] if qs else print('AI IMEFELI: '+d.get('message','unknown'))" 2>/dev/null || echo "$AI_RESP" | head -c 400
-
-            echo "=== Step 5: Backend logs (openrouter errors) ==="
-            sudo docker logs $CONTAINER --tail=20 2>&1 | grep -i "openrouter\|AiException\|request_failed" | tail -10
+              -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}' \
+              | python3 -m json.tool
           SSHEOF
