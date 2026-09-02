@@ -259,11 +259,11 @@ jobs:
           AWS_BACKUP_BUCKET=${AWS_BUCKET}
 
           AI_TUTOR_PROVIDER=gemini
+          AI_QUESTION_PROVIDER=gemini
           GEMINI_API_KEY=${GEMINI_API_KEY}
           GEMINI_MODEL=gemini-1.5-flash-latest
-          GEMINI_TIMEOUT=30
+          GEMINI_TIMEOUT=60
 
-          AI_QUESTION_PROVIDER=groq
           GROQ_API_KEY=${GROQ_API_KEY}
           GROQ_MODEL=llama-3.3-70b-versatile
 
