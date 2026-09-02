@@ -308,8 +308,8 @@ Route::prefix('v1')->group(function () {
         Route::get('courses/{course:uuid}/attendance-summary', [\App\Http\Controllers\Api\V1\Attendance\AttendanceReportController::class, 'courseSummary'])->name('attendance.reports.course');
     });
 
-    // Student self check-in via QR
-    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client|system_admin'])->group(function () {
+    // Student self check-in via QR (admins/trainers excluded — they are not students)
+    Route::middleware(['auth:sanctum', 'active.user', 'role:student|corporate_client'])->group(function () {
         Route::post('attendance/check-in', [\App\Http\Controllers\Api\V1\Attendance\AttendanceRecordController::class, 'checkIn'])->name('attendance.check-in');
     });
 

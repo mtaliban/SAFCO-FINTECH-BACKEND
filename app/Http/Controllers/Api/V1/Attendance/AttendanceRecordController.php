@@ -59,6 +59,14 @@ class AttendanceRecordController extends Controller
             return $this->error('Session is not open for check-in.', 422);
         }
 
+        // If session is linked to a course, only enrolled students may check in
+        if ($session->course_id) {
+            $enrolledIds = $session->expectedStudentIds();
+            if (!$enrolledIds->contains($request->user()->id)) {
+                return $this->error('Hujasajiliwa kwa course hii. Wasiliana na trainer wako.', 403);
+            }
+        }
+
         $now = now();
         $status = $session->classifyCheckIn($now);
 
