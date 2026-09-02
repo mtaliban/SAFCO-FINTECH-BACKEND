@@ -40,17 +40,25 @@ done
 # Export image reference so docker-compose picks up the right tag.
 export DOCKER_IMAGE IMAGE_TAG
 
-# Only remove old sha- tagged app images (keep latest 2) + dangling layers.
-# Never prune mysql/redis images — they are large and expensive to re-pull.
-echo "==> Pre-deploy cleanup (remove old app sha- images only) ..."
-$DOCKER images mtalibani/safco-backend --format "{{.ID}} {{.Tag}}" | grep "sha-" | tail -n +3 | awk '{print $1}' | xargs -r $DOCKER rmi -f 2>/dev/null || true
+# Stop app containers (NOT mysql/redis) so their image is no longer "in use",
+# then remove ALL safco-backend images to free ~500 MB before pulling the new one.
+# MySQL + Redis containers/volumes are untouched.
+echo "==> Stopping app containers to free image space ..."
+$DOCKER compose -f "${COMPOSE_FILE}" stop app worker reverb scheduler 2>/dev/null || true
+$DOCKER compose -f "${COMPOSE_FILE}" rm -f app worker reverb scheduler 2>/dev/null || true
+
+echo "==> Removing all safco-backend images (freeing disk) ..."
+$DOCKER images mtalibani/safco-backend --format "{{.ID}}" | xargs -r $DOCKER rmi -f 2>/dev/null || true
 $DOCKER image prune -f 2>/dev/null || true
+
+echo "==> Disk after cleanup:"
+df -h / | tail -1
 
 echo "==> Pulling new app image ${DOCKER_IMAGE}:${IMAGE_TAG} ..."
 $DOCKER pull "${DOCKER_IMAGE}:${IMAGE_TAG}"
 $DOCKER pull "${DOCKER_IMAGE}:latest"
 
-echo "==> Bringing up stack (rolling restart) ..."
+echo "==> Bringing up full stack ..."
 $DOCKER compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 
 # Wait for MySQL healthcheck to pass.
