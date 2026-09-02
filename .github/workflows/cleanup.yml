@@ -28,25 +28,34 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Free disk space on EC2
+      - name: Fix containerd + free disk space
         run: |
           ssh "$EC2_USER@$EC2_HOST" << 'SSHEOF'
             echo "=== Disk before ==="
             df -h /
 
-            echo "=== Docker system prune ==="
-            sudo docker system prune -af --volumes
+            echo "=== Running containers ==="
+            sudo docker ps --format "{{.Names}} {{.Image}}"
 
-            echo "=== Remove old images (keep latest + running) ==="
-            KEEP=$(sudo docker ps -q | xargs -r sudo docker inspect --format='{{range .Image}}{{.}}{{end}}' 2>/dev/null | sort -u)
-            sudo docker images --format "{{.ID}} {{.Repository}}:{{.Tag}} {{.CreatedAt}}" | sort -k3 -r | tail -n +6 | awk '{print $1}' | xargs -r sudo docker rmi -f 2>/dev/null || true
+            echo "=== Restart containerd to clear corrupt snapshots ==="
+            sudo systemctl restart containerd
+            sleep 5
+            sudo systemctl restart docker
+            sleep 5
 
-            echo "=== Journal logs cleanup ==="
-            sudo journalctl --vacuum-size=50M 2>/dev/null || true
+            echo "=== Remove ONLY dangling images (keeps images in use) ==="
+            sudo docker image prune -f
 
-            echo "=== APT cache cleanup ==="
+            echo "=== Remove old safco-backend sha- images (keep latest 2) ==="
+            sudo docker images mtalibani/safco-backend --format "{{.ID}} {{.Tag}}" | grep "sha-" | tail -n +3 | awk '{print $1}' | xargs -r sudo docker rmi -f 2>/dev/null || true
+
+            echo "=== Journal + apt cache ==="
+            sudo journalctl --vacuum-size=30M 2>/dev/null || true
             sudo apt-get clean 2>/dev/null || true
 
             echo "=== Disk after ==="
             df -h /
+
+            echo "=== Running containers after ==="
+            sudo docker ps --format "{{.Names}} {{.Status}}"
           SSHEOF
