@@ -72,10 +72,10 @@ jobs:
             echo "Token: ${TOKEN:0:25}..."
 
             echo "=== Step 4: AI Generate Questions (FULL RESPONSE) ==="
-            curl -s -X POST http://localhost:8000/api/v1/ai/generate-questions \
+            AI_FULL=$(curl -s -w "\n---HTTP_STATUS:%{http_code}---" -X POST http://localhost:8000/api/v1/ai/generate-questions \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}' \
-              | python3 -m json.tool
+              -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}')
+            echo "$AI_FULL"
           SSHEOF
