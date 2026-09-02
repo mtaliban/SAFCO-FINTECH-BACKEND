@@ -1,6 +1,10 @@
 name: Diagnose AI
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diag.yml'
 
 env:
   EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -26,45 +30,49 @@ jobs:
 
       - name: Test AI end-to-end
         run: |
-          ssh "$EC2_USER@$EC2_HOST" '
+          ssh "$EC2_USER@$EC2_HOST" << 'SSHEOF'
             CONTAINER=$(sudo docker ps -qf name=app | head -1)
             DB_CONTAINER=$(sudo docker ps -qf name=mysql | head -1)
+            DB_PASS=$(sudo docker exec $CONTAINER printenv DB_PASSWORD)
 
-            echo "=== Step 1: Trigger login (sends OTP) ==="
+            echo "=== Step 1: Login (OTP triggered) ==="
             curl -s -X POST http://localhost:8000/api/v1/auth/login \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d "{\"identifier\":\"yustino.nyendeza@safcofintech.co.tz\",\"password\":\"Trainer@2026!\"}" | cat
+              -d '{"identifier":"yustino.nyendeza@safcofintech.co.tz","password":"Trainer@2026!"}'
             echo ""
+            sleep 3
 
-            echo "=== Step 2: Get OTP from database ==="
-            sleep 2
-            OTP=$(sudo docker exec $DB_CONTAINER mysql -u safco_user -p"$(sudo docker exec $CONTAINER printenv DB_PASSWORD)" safco_lms \
+            echo "=== Step 2: OTP from DB ==="
+            OTP=$(sudo docker exec $DB_CONTAINER mysql -u safco_user -p"$DB_PASS" safco_lms \
               -se "SELECT code FROM otp_codes WHERE user_id=(SELECT id FROM users WHERE email='yustino.nyendeza@safcofintech.co.tz') ORDER BY created_at DESC LIMIT 1;" 2>/dev/null)
             echo "OTP: $OTP"
 
-            echo "=== Step 3: Verify OTP and get token ==="
-            TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/verify-otp \
+            echo "=== Step 3: Verify OTP ==="
+            VERIFY=$(curl -s -X POST http://localhost:8000/api/v1/auth/verify-otp \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d "{\"email\":\"yustino.nyendeza@safcofintech.co.tz\",\"code\":\"$OTP\"}" \
-              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get(\"data\",{}).get(\"token\",\"NO_TOKEN\"))" 2>/dev/null)
-            echo "Token: ${TOKEN:0:20}..."
+              -d "{\"email\":\"yustino.nyendeza@safcofintech.co.tz\",\"code\":\"$OTP\"}")
+            echo "$VERIFY" | head -c 200
+            echo ""
+            TOKEN=$(echo "$VERIFY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('token','NO_TOKEN'))" 2>/dev/null)
+            echo "Token: ${TOKEN:0:25}..."
 
-            echo "=== Step 4: Test AI generate ==="
-            curl -s -X POST http://localhost:8000/api/v1/ai/generate-questions \
+            echo "=== Step 4: AI Generate Questions ==="
+            AI_RESP=$(curl -s -X POST http://localhost:8000/api/v1/ai/generate-questions \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d "{\"source_type\":\"topic\",\"topic\":\"basic accounting\",\"question_type\":\"multiple_choice\",\"count\":3,\"difficulty\":\"easy\",\"language\":\"en\"}" \
-              | python3 -c "
+              -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}')
+            echo "$AI_RESP" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
-qs=d.get(\"data\",{}).get(\"questions\",[])
+qs=d.get('data',{}).get('questions',[])
 if qs:
-    print(f\"AI INAFANYA KAZI! Questions: {len(qs)}\")
-    for i,q in enumerate(qs): print(f\"  Q{i+1}: {q[\"text\"][:80]}\")
+    print('AI INAFANYA KAZI! Questions: ' + str(len(qs)))
+    for i,q in enumerate(qs):
+        print('  Q' + str(i+1) + ': ' + q.get('text','')[:80])
 else:
-    print(\"AI IMEFELI:\", d.get(\"message\",\"unknown\"))
-" 2>/dev/null
-          '
+    print('AI IMEFELI: ' + d.get('message','unknown'))
+" 2>/dev/null || echo "$AI_RESP" | head -c 300
+          SSHEOF
