@@ -36,11 +36,9 @@ jobs:
             echo "=== Today Laravel log (last 100 lines) ==="
             sudo docker exec $CONTAINER sh -c "tail -n 100 storage/logs/laravel-$(date +%Y-%m-%d).log 2>/dev/null || tail -n 100 storage/logs/laravel.log 2>/dev/null || echo NO_LOG_FILE"
             echo ""
-            echo "=== Test Groq API directly ==="
+            echo "=== Available Groq models for this key ==="
             GROQ_KEY=$(sudo docker exec $CONTAINER printenv GROQ_API_KEY)
-            GROQ_MODEL=$(sudo docker exec $CONTAINER printenv GROQ_MODEL)
-            curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST https://api.groq.com/openai/v1/chat/completions \
+            curl -s https://api.groq.com/openai/v1/models \
               -H "Authorization: Bearer $GROQ_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"model\":\"$GROQ_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}],\"max_tokens\":5}" | tail -3
+              | python3 -c "import sys,json; d=json.load(sys.stdin); [print(m['id']) for m in d.get('data',[])]" 2>/dev/null || echo "Failed to list models"
           '
