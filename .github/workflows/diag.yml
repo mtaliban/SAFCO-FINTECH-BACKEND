@@ -1,0 +1,35 @@
+name: Diagnose AI
+on:
+  workflow_dispatch:
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_USER: ${{ secrets.EC2_USER }}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        env:
+          KEY_RAW: ${{ secrets.EC2_SSH_KEY }}
+          KEY_B64: ${{ secrets.EC2_SSH_KEY_B64 }}
+        run: |
+          mkdir -p ~/.ssh
+          if [ -n "$KEY_B64" ]; then
+            printf '%s' "$KEY_B64" | tr -d '[:space:]' | base64 -d > ~/.ssh/id_rsa
+          else
+            printf '%s\n' "$KEY_RAW" | tr -d '\r' > ~/.ssh/id_rsa
+          fi
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Read AI error logs
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" '
+            echo "=== AI env vars (keys truncated) ==="
+            sudo docker exec $(sudo docker ps -qf name=app) printenv | grep -E "^(AI_|GEMINI_|GROQ_|OPENROUTER_)" | sed "s/=\(.\{8\}\).*/=\1.../"
+            echo ""
+            echo "=== Last 50 AI errors from Laravel log ==="
+            sudo docker exec $(sudo docker ps -qf name=app) tail -n 200 storage/logs/laravel.log 2>/dev/null | grep -A5 "ai\." | tail -80
+          '
