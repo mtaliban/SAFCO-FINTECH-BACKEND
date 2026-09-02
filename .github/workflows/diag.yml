@@ -66,12 +66,18 @@ jobs:
             echo "OPENROUTER_MODEL=$OR_MODEL"
             echo "OPENROUTER_API_KEY starts_with=${OR_KEY:0:12}..."
 
-            echo "=== Step 4b: Test OpenRouter API directly ==="
-            OR_TEST=$(curl -s -X POST https://openrouter.ai/api/v1/chat/completions \
-              -H "Authorization: Bearer $OR_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"model\":\"$OR_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":5}")
-            echo "$OR_TEST" | head -c 300
+            echo "=== Step 4b: Find working free OpenRouter model ==="
+            for TEST_MODEL in "google/gemini-2.0-flash-exp:free" "meta-llama/llama-3.2-3b-instruct:free" "qwen/qwen-2.5-7b-instruct:free" "mistralai/mistral-7b-instruct:free" "nousresearch/hermes-3-llama-3.1-405b:free"; do
+              RES=$(curl -s -X POST https://openrouter.ai/api/v1/chat/completions \
+                -H "Authorization: Bearer $OR_KEY" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"$TEST_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"reply with the single word OK\"}],\"max_tokens\":5}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('OK:'+d.get('choices',[{}])[0].get('message',{}).get('content','')) if d.get('choices') else print('ERR:'+d.get('error',{}).get('message','?')[:80])" 2>/dev/null)
+              echo "$TEST_MODEL => $RES"
+              if echo "$RES" | grep -q "^OK:"; then
+                echo "WINNER=$TEST_MODEL"
+                break
+              fi
+            done
             echo ""
 
             echo "=== Step 4c: AI Generate via backend ==="
