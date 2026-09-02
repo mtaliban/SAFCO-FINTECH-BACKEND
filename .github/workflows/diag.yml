@@ -49,7 +49,7 @@ jobs:
             echo "OTP: $OTP"
 
             echo "=== Step 3: Verify OTP ==="
-            VERIFY=$(curl -s -X POST http://localhost:8000/api/v1/auth/verify-otp \
+            VERIFY=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/verify \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               -d "{\"email\":\"yustino.nyendeza@safcofintech.co.tz\",\"code\":\"$OTP\"}")
