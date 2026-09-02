@@ -64,15 +64,5 @@ jobs:
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               -d '{"source_type":"topic","topic":"basic accounting","question_type":"multiple_choice","count":3,"difficulty":"easy","language":"en"}')
-            echo "$AI_RESP" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-qs=d.get('data',{}).get('questions',[])
-if qs:
-    print('AI INAFANYA KAZI! Questions: ' + str(len(qs)))
-    for i,q in enumerate(qs):
-        print('  Q' + str(i+1) + ': ' + q.get('text','')[:80])
-else:
-    print('AI IMEFELI: ' + d.get('message','unknown'))
-" 2>/dev/null || echo "$AI_RESP" | head -c 300
+            echo "$AI_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); qs=d.get('data',{}).get('questions',[]); [print('AI INAFANYA KAZI! Questions: '+str(len(qs))), [print('  Q'+str(i+1)+': '+q.get('text','')[:80]) for i,q in enumerate(qs)]] if qs else print('AI IMEFELI: '+d.get('message','unknown'))" 2>/dev/null || echo "$AI_RESP" | head -c 400
           SSHEOF
