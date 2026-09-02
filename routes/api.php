@@ -313,6 +313,7 @@ Route::prefix('v1')->group(function () {
         Route::post('attendance/check-in', [\App\Http\Controllers\Api\V1\Attendance\AttendanceRecordController::class, 'checkIn'])->name('attendance.check-in');
         Route::post('attendance-sessions/{session:uuid}/live-join', [\App\Http\Controllers\Api\V1\Attendance\AttendanceRecordController::class, 'liveJoin'])->name('attendance.live-join');
         Route::get('attendance-sessions/{session:uuid}/peek', [\App\Http\Controllers\Api\V1\Attendance\AttendanceSessionController::class, 'peek'])->name('attendance.peek');
+        Route::get('student/live-sessions', [\App\Http\Controllers\Api\V1\Attendance\AttendanceSessionController::class, 'studentSessions'])->name('student.live-sessions');
     });
 
     /* ============================================================

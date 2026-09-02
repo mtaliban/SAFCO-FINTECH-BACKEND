@@ -160,6 +160,39 @@ class AttendanceSessionController extends Controller
         ]);
     }
 
+    /** GET /api/v1/student/live-sessions — live + upcoming sessions for enrolled courses */
+    public function studentSessions(Request $request): JsonResponse
+    {
+        $student = $request->user();
+        $enrolledCourseIds = \App\Models\Enrollment::where('user_id', $student->id)->pluck('course_id');
+
+        $sessions = AttendanceSession::where(function ($q) use ($enrolledCourseIds) {
+            // Standalone (no course) OR enrolled in the course
+            $q->whereNull('course_id')->orWhereIn('course_id', $enrolledCourseIds);
+        })
+        ->where(function ($q) {
+            $q->where('status', 'open')
+              ->orWhere(function ($q2) {
+                  // Scheduled within next 48h
+                  $q2->where('status', 'scheduled')->where('starts_at', '<=', now()->addHours(48));
+              });
+        })
+        ->with('course:id,uuid,title', 'trainer:id,uuid,email')
+        ->orderByRaw("FIELD(status,'open','scheduled')")
+        ->orderBy('starts_at')
+        ->get();
+
+        return $this->success($sessions->map(fn ($s) => [
+            'uuid' => $s->uuid,
+            'title' => $s->title,
+            'location' => $s->location,
+            'status' => $s->status,
+            'starts_at' => $s->starts_at?->toIso8601String(),
+            'course' => $s->course ? ['uuid' => $s->course->uuid, 'title' => $s->course->title] : null,
+            'jitsi_room' => 'safco-lms-' . $s->uuid,
+        ]));
+    }
+
     /** GET /api/v1/attendance-sessions/{session:uuid}/peek  (student sees basic session info) */
     public function peek(AttendanceSession $session): JsonResponse
     {
