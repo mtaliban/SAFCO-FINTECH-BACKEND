@@ -160,6 +160,21 @@ class AttendanceSessionController extends Controller
         ]);
     }
 
+    /** GET /api/v1/attendance-sessions/{session:uuid}/peek  (student sees basic session info) */
+    public function peek(AttendanceSession $session): JsonResponse
+    {
+        $session->load('course:id,uuid,title');
+        return $this->success([
+            'uuid' => $session->uuid,
+            'title' => $session->title,
+            'location' => $session->location,
+            'status' => $session->status,
+            'starts_at' => $session->starts_at?->toIso8601String(),
+            'course' => $session->course ? ['uuid' => $session->course->uuid, 'title' => $session->course->title] : null,
+            'jitsi_room' => 'safco-lms-' . $session->uuid,
+        ]);
+    }
+
     /** DELETE /api/v1/attendance-sessions/{session:uuid} */
     public function destroy(AttendanceSession $session, Request $request): JsonResponse
     {
@@ -194,6 +209,7 @@ class AttendanceSessionController extends Controller
             'qr_token' => $s->qr_token,
             'qr_expires_at' => $s->qr_expires_at?->toIso8601String(),
             'records_count' => $s->records_count ?? $s->records->count() ?? 0,
+            'jitsi_room' => 'safco-lms-' . $s->uuid,
         ];
     }
 

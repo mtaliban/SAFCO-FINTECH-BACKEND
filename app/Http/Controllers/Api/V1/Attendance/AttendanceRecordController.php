@@ -44,6 +44,42 @@ class AttendanceRecordController extends Controller
         return $this->success($this->transform($record->fresh('student')), 'Marked', 201);
     }
 
+    /** POST /api/v1/attendance-sessions/{session:uuid}/live-join  (student joins via Jitsi) */
+    public function liveJoin(AttendanceSession $session, Request $request): JsonResponse
+    {
+        if ($session->status !== 'open') {
+            return $this->error('Darasa hili halijafunguliwa bado.', 422);
+        }
+
+        if ($session->course_id) {
+            $enrolledIds = $session->expectedStudentIds();
+            if (!$enrolledIds->contains($request->user()->id)) {
+                return $this->error('Hujasajiliwa kwa course hii. Wasiliana na trainer wako.', 403);
+            }
+        }
+
+        $now = now();
+        $status = $session->classifyCheckIn($now);
+
+        $record = AttendanceRecord::updateOrCreate(
+            ['attendance_session_id' => $session->id, 'student_id' => $request->user()->id],
+            ['status' => $status, 'method' => 'live', 'checked_in_at' => $now]
+        );
+
+        $this->broadcastCheckIn($session, $record, $request->user());
+
+        return $this->success([
+            'status' => $record->status,
+            'session' => [
+                'uuid' => $session->uuid,
+                'title' => $session->title,
+                'location' => $session->location,
+                'jitsi_room' => 'safco-lms-' . $session->uuid,
+            ],
+            'checked_in_at' => $record->checked_in_at->toIso8601String(),
+        ], "Umejoin kama {$record->status}");
+    }
+
     /** POST /api/v1/attendance/check-in  (student self-check-in via QR token) */
     public function checkIn(Request $request): JsonResponse
     {
