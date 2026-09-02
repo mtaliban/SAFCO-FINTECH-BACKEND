@@ -258,8 +258,8 @@ jobs:
           BACKUP_DISK=s3
           AWS_BACKUP_BUCKET=${AWS_BUCKET}
 
-          AI_TUTOR_PROVIDER=gemini
-          AI_QUESTION_PROVIDER=gemini
+          AI_TUTOR_PROVIDER=groq
+          AI_QUESTION_PROVIDER=groq
           GEMINI_API_KEY=${GEMINI_API_KEY}
           GEMINI_MODEL=gemini-1.5-flash-latest
           GEMINI_TIMEOUT=60

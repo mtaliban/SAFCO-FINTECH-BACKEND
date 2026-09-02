@@ -27,9 +27,20 @@ jobs:
       - name: Read AI error logs
         run: |
           ssh "$EC2_USER@$EC2_HOST" '
-            echo "=== AI env vars (keys truncated) ==="
-            sudo docker exec $(sudo docker ps -qf name=app) printenv | grep -E "^(AI_|GEMINI_|GROQ_|OPENROUTER_)" | sed "s/=\(.\{8\}\).*/=\1.../"
+            CONTAINER=$(sudo docker ps -qf name=app | head -1)
+            echo "=== Container: $CONTAINER ==="
             echo ""
-            echo "=== Last 50 AI errors from Laravel log ==="
-            sudo docker exec $(sudo docker ps -qf name=app) tail -n 200 storage/logs/laravel.log 2>/dev/null | grep -A5 "ai\." | tail -80
+            echo "=== AI env vars (keys truncated) ==="
+            sudo docker exec $CONTAINER printenv | grep -E "^(AI_|GEMINI_|GROQ_|OPENROUTER_)" | sed "s/=\(.\{8\}\).*/=\1.../"
+            echo ""
+            echo "=== Today Laravel log (last 100 lines) ==="
+            sudo docker exec $CONTAINER sh -c "tail -n 100 storage/logs/laravel-$(date +%Y-%m-%d).log 2>/dev/null || tail -n 100 storage/logs/laravel.log 2>/dev/null || echo NO_LOG_FILE"
+            echo ""
+            echo "=== Test Groq API directly ==="
+            GROQ_KEY=$(sudo docker exec $CONTAINER printenv GROQ_API_KEY)
+            GROQ_MODEL=$(sudo docker exec $CONTAINER printenv GROQ_MODEL)
+            curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST https://api.groq.com/openai/v1/chat/completions \
+              -H "Authorization: Bearer $GROQ_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"model\":\"$GROQ_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}],\"max_tokens\":5}" | tail -3
           '
