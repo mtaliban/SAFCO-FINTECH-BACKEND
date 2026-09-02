@@ -1,4 +1,4 @@
-name: Diagnose AI # final verification
+name: Diagnose AI # post-deploy check
 on:
   workflow_dispatch:
   push:
