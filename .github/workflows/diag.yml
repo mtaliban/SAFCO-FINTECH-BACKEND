@@ -1,4 +1,4 @@
-name: Diagnose AI
+name: Diagnose AI # re-run
 on:
   workflow_dispatch:
   push:
