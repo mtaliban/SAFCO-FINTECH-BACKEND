@@ -1,4 +1,4 @@
-name: Diagnose AI # re-run
+name: Diagnose AI # final verification
 on:
   workflow_dispatch:
   push:
