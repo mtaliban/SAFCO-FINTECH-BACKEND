@@ -39,6 +39,10 @@ jobs:
             -d '{"model":"meta-llama/llama-3.1-8b-instruct","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' \
             | python3 -c "import sys,json; d=json.load(sys.stdin); print('WORKS: '+d['choices'][0]['message']['content'][:30]) if d.get('choices') else print('FAIL: '+str(d)[:100])" 2>/dev/null || echo "PARSE_ERROR"
 
+      - name: Confirm OPENROUTER_MODEL env in container
+        run: |
+          ssh "$EC2_USER@$EC2_HOST" 'CONTAINER=$(sudo docker ps -qf name=app | head -1); echo "MODEL=$(sudo docker exec $CONTAINER printenv OPENROUTER_MODEL)"'
+
       - name: Test AI end-to-end on EC2
         run: |
           ssh "$EC2_USER@$EC2_HOST" << 'SSHEOF'
