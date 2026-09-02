@@ -268,7 +268,7 @@ jobs:
           GROQ_MODEL=llama-3.1-8b-instant
 
           OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-          OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
+          OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct
 
           SANCTUM_TOKEN_EXPIRATION=86400
           SESSION_SECURE_COOKIE=false

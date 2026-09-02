@@ -28,40 +28,16 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Test all AI providers
+      - name: Confirm OpenRouter model works
         env:
-          GROQ_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
           OR_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          PARSE='import sys,json; d=json.load(sys.stdin); print("WORKS: "+d["choices"][0]["message"]["content"][:30]) if d.get("choices") else print("FAIL: "+str(d)[:100])'
-
-          echo "--- GROQ ---"
-          for MODEL in "llama-3.1-8b-instant" "llama-3.2-3b-preview" "gemma2-9b-it"; do
-            echo -n "groq/$MODEL => "
-            curl -s https://api.groq.com/openai/v1/chat/completions \
-              -H "Authorization: Bearer $GROQ_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":5}" \
-              | python3 -c "$PARSE" 2>/dev/null || echo "PARSE_ERROR"
-          done
-
-          echo "--- GEMINI direct ---"
-          echo -n "gemini-1.5-flash => "
-          curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_KEY" \
+          echo -n "meta-llama/llama-3.1-8b-instruct => "
+          curl -s https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OR_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"contents":[{"parts":[{"text":"say ok"}]}]}' \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); c=d.get('candidates',[]); print('WORKS: '+c[0]['content']['parts'][0]['text'][:30]) if c else print('FAIL: '+str(d.get('error',d))[:100])" 2>/dev/null || echo "PARSE_ERROR"
-
-          echo "--- OPENROUTER (paid models) ---"
-          for MODEL in "meta-llama/llama-3.1-8b-instruct" "google/gemini-flash-1.5" "mistralai/mistral-7b-instruct"; do
-            echo -n "$MODEL => "
-            curl -s https://openrouter.ai/api/v1/chat/completions \
-              -H "Authorization: Bearer $OR_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"say ok\"}],\"max_tokens\":5}" \
-              | python3 -c "$PARSE" 2>/dev/null || echo "PARSE_ERROR"
-          done
+            -d '{"model":"meta-llama/llama-3.1-8b-instruct","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print('WORKS: '+d['choices'][0]['message']['content'][:30]) if d.get('choices') else print('FAIL: '+str(d)[:100])" 2>/dev/null || echo "PARSE_ERROR"
 
       - name: Test AI end-to-end on EC2
         run: |
