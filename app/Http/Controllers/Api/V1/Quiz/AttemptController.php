@@ -81,7 +81,7 @@ class AttemptController extends Controller
     {
         $this->authorizeOwnership($attempt, $request);
         $data = $request->validate([
-            'type' => ['required', 'string', 'in:tab_switch,fullscreen_exit,copy_paste,right_click,visibility_hidden,dev_tools'],
+            'type' => ['required', 'string', 'in:tab_switch,fullscreen_exit,copy_paste,right_click,visibility_hidden,dev_tools,devtools_shortcut,window_blur,webcam_denied'],
             'meta' => ['nullable', 'array'],
         ]);
         $updated = $this->attempts->logViolation($attempt, $data['type'], $data['meta'] ?? []);
@@ -90,6 +90,23 @@ class AttemptController extends Controller
             'status' => $updated->status,
             'auto_submit_reason' => $updated->auto_submit_reason,
         ]);
+    }
+
+    /** POST /api/v1/attempts/{uuid}/snapshot — store webcam snapshot to S3 */
+    public function snapshot(QuizAttempt $attempt, Request $request): JsonResponse
+    {
+        $this->authorizeOwnership($attempt, $request);
+        if ($attempt->status !== 'in_progress') {
+            return $this->error('Attempt is not in progress.', 422);
+        }
+        $request->validate(['snapshot' => ['required', 'file', 'image', 'mimes:jpg,jpeg', 'max:512']]);
+
+        $path = \Illuminate\Support\Facades\Storage::disk('s3')->putFile(
+            "webcam/{$attempt->uuid}",
+            $request->file('snapshot'),
+        );
+
+        return $this->success(['stored' => (bool) $path]);
     }
 
     /** GET /api/v1/student/my-attempts */

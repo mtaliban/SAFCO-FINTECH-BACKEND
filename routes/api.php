@@ -384,6 +384,7 @@ Route::prefix('v1')->group(function () {
         Route::post('attempts/{attempt:uuid}/answer', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'answer'])->name('attempts.answer');
         Route::post('attempts/{attempt:uuid}/complete', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'complete'])->name('attempts.complete');
         Route::post('attempts/{attempt:uuid}/violation', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'violation'])->name('attempts.violation');
+        Route::post('attempts/{attempt:uuid}/snapshot', [\App\Http\Controllers\Api\V1\Quiz\AttemptController::class, 'snapshot'])->name('attempts.snapshot');
     });
 
     /* ============================================================
