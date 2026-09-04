@@ -322,6 +322,7 @@ class LiveQuizSessionService
                 'total_score' => $participant->fresh()->total_score,
                 'response_time_ms' => $responseTimeMs,
                 'answered_at_position' => $position,
+                'correct_answer' => $question->correct_answer,
             ];
         });
     }
